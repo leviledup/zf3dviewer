@@ -52,32 +52,23 @@ fileInput.addEventListener('change', (e) => {
 
 async function handleZF3DContainer(file) {
   try {
-    statusEl.textContent = 'Reading archive...';
+    statusEl.textContent = 'Extracting package...';
     const zip = await JSZip.loadAsync(file);
     
-    // Debug: List all files inside the .zf3d container in console
-    console.log("Files inside ZF3D container:", Object.keys(zip.files));
+    // Find all internal file components
+    const entries = Object.keys(zip.files);
+    console.log("Archive contents:", entries);
 
-    // Explicitly find files and avoid mixing them up
-    const vertexKey = Object.keys(zip.files).find(name => name.endsWith('.vertex'));
-    const xmlKey = Object.keys(zip.files).find(name => name.endsWith('.xml'));
-    const textureKey = Object.keys(zip.files).find(name => name.endsWith('.jpg') || name.endsWith('.png'));
-    const animationKey = Object.keys(zip.files).find(name => name.endsWith('.animation'));
-
-    if (animationKey) console.log("Found animation file (skipping vertex parser mixup):", animationKey);
+    const vertexKey = entries.find(name => name.endsWith('.vertex'));
+    const indexKey = entries.find(name => name.endsWith('.index') || name.includes('index'));
+    const textureKey = entries.find(name => name.endsWith('.jpg') || name.endsWith('.png'));
 
     if (!vertexKey) {
-      statusEl.textContent = 'Error: No .vertex file found!';
+      statusEl.textContent = 'Error: Missing .vertex file!';
       return;
     }
 
-    // Read XML metadata if present to check layout
-    if (xmlKey) {
-      const xmlText = await zip.files[xmlKey].async('text');
-      console.log("Model XML Content:", xmlText);
-    }
-
-    // Load Texture
+    // Load texture if available
     let texture = null;
     if (textureKey) {
       const texBlob = await zip.files[textureKey].async('blob');
@@ -86,31 +77,32 @@ async function handleZF3DContainer(file) {
       texture.colorSpace = THREE.SRGBColorSpace;
     }
 
-    // Load Pure Vertex Buffer bytes
-    statusEl.textContent = 'Parsing .vertex data...';
+    statusEl.textContent = 'Parsing buffers...';
     const vertexBuffer = await zip.files[vertexKey].async('arraybuffer');
     
-    renderMeshSafely(vertexBuffer, texture);
+    let indexBuffer = null;
+    if (indexKey) {
+      indexBuffer = await zip.files[indexKey].async('arraybuffer');
+    }
+
+    renderIndexedMesh(vertexBuffer, indexBuffer, texture);
 
   } catch (err) {
     console.error(err);
-    statusEl.textContent = 'Extraction failed';
+    statusEl.textContent = 'Failed to parse package';
   }
 }
 
-function renderMeshSafely(buffer, texture) {
-  const fullFloats = new Float32Array(buffer);
-  
-  // Let's test standard interleaved stride of 8 (Pos3, Normal3, UV2)
-  const STRIDE = 8;
+function renderIndexedMesh(vertBuffer, idxBuffer, texture) {
+  const fullFloats = new Float32Array(vertBuffer);
+  const STRIDE = 8; // Standard interleaved layout: Pos(3) + Normal(3) + UV(2)
   const totalVertices = Math.floor(fullFloats.length / STRIDE);
-  
+
   const positions = new Float32Array(totalVertices * 3);
   const uvs = new Float32Array(totalVertices * 2);
 
   for (let i = 0; i < totalVertices; i++) {
     const base = i * STRIDE;
-    
     positions[i * 3]     = fullFloats[base + 0];
     positions[i * 3 + 1] = fullFloats[base + 1];
     positions[i * 3 + 2] = fullFloats[base + 2];
@@ -122,6 +114,14 @@ function renderMeshSafely(buffer, texture) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+  // If an index/face buffer exists, parse it so triangles form correctly
+  if (idxBuffer) {
+    // Try reading indices as 16-bit integers (standard for Flash/Flare3D)
+    const indices = new Uint16Array(idxBuffer);
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  }
+
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
@@ -145,7 +145,7 @@ function renderMeshSafely(buffer, texture) {
 
   statusEl.textContent = 'Rendered successfully';
   vertexCountEl.textContent = totalVertices.toLocaleString();
-  faceCountEl.textContent = Math.floor(totalVertices / 3).toLocaleString();
+  faceCountEl.textContent = geometry.index ? Math.floor(geometry.index.count / 3).toLocaleString() : Math.floor(totalVertices / 3).toLocaleString();
 }
 
 wireframeToggle.addEventListener('change', (e) => {
