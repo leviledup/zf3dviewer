@@ -2,43 +2,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const container = document.getElementById('viewport');
-const statusEl = document.getElementById('status');
-const vertexCountEl = document.getElementById('vertexCount');
-const faceCountEl = document.getElementById('faceCount');
-const boneCountEl = document.getElementById('boneCount');
-const wireframeToggle = document.getElementById('wireframeToggle');
-const autoRotateToggle = document.getElementById('autoRotateToggle');
-const resetCamBtn = document.getElementById('resetCamBtn');
-const fileInput = document.getElementById('fileInput');
-
-// Make sure Open Archive button triggers the hidden file input click
-const openArchiveBtn = document.getElementById('openArchiveBtn');
-if (openArchiveBtn && fileInput) {
-  openArchiveBtn.addEventListener('click', () => {
-    fileInput.click();
-  });
-}
-
-const width = container.clientWidth || window.innerWidth;
-const height = container.clientHeight || window.innerHeight;
-
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0f0f12);
 
-const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
 camera.position.set(0, 5, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(width, height);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-renderer.domElement.style.position = 'absolute';
-renderer.domElement.style.top = '0';
-renderer.domElement.style.left = '0';
-renderer.domElement.style.width = '100%';
-renderer.domElement.style.height = '100%';
-renderer.domElement.style.zIndex = '1';
-
+renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
 container.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -56,9 +28,17 @@ scene.add(grid);
 
 let currentGroup = null;
 
+const statusEl = document.getElementById('status');
+const vertexCountEl = document.getElementById('vertexCount');
+const faceCountEl = document.getElementById('faceCount');
+const boneCountEl = document.getElementById('boneCount');
+const wireframeToggle = document.getElementById('wireframeToggle');
+const autoRotateToggle = document.getElementById('autoRotateToggle');
+const resetCamBtn = document.getElementById('resetCamBtn');
+
 const debugBox = document.createElement('div');
-debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:300px; max-height:140px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:9px; padding:6px; overflow-y:auto; border-radius:4px; z-index:99; pointer-events:none;';
-debugBox.innerHTML = '<b>ZF3D Log:</b> Ready...';
+debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
+debugBox.innerHTML = '<b>ZF3D Corrected Parser:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -67,27 +47,28 @@ function logDebug(text) {
   debugBox.scrollTop = debugBox.scrollHeight;
 }
 
-if (fileInput) {
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      parseZF3DContainer(e.target.files[0]);
-    }
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+if (dropZone) {
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files.length) parseZF3DContainer(e.dataTransfer.files[0]);
   });
 }
 
-// Drag and drop support directly on the viewport
-container.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
-container.addEventListener('drop', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    parseZF3DContainer(e.dataTransfer.files[0]);
-  }
-});
+if (fileInput) {
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) parseZF3DContainer(e.target.files[0]);
+  });
+}
 
 async function parseZF3DContainer(file) {
   try {
-    statusEl.textContent = 'Parsing...';
+    statusEl.textContent = 'Parsing container...';
     logDebug(`Opening: ${file.name}`);
 
     const zip = await JSZip.loadAsync(file);
@@ -113,10 +94,10 @@ async function parseZF3DContainer(file) {
       if (mesh) {
         currentGroup.add(mesh);
         totalVerts += mesh.geometry.attributes.position.count;
-        logDebug('Loaded 34.vertex successfully');
+        logDebug('Successfully built mesh from 34.vertex');
       }
     } else {
-      logDebug('ERROR: 34.vertex missing from zip!');
+      logDebug('ERROR: 34.vertex not found in archive!');
     }
 
     if (currentGroup.children.length === 0) {
@@ -136,9 +117,9 @@ async function parseZF3DContainer(file) {
     controls.target.set(0, 0, 0);
 
     statusEl.textContent = 'Rendered successfully';
-    vertexCountEl.textContent = totalVerts.toLocaleString();
-    faceCountEl.textContent = totalFaces.toLocaleString();
-    boneCountEl.textContent = totalBones.toLocaleString();
+    if (vertexCountEl) vertexCountEl.textContent = totalVerts.toLocaleString();
+    if (faceCountEl) faceCountEl.textContent = totalFaces.toLocaleString();
+    if (boneCountEl) boneCountEl.textContent = totalBones.toLocaleString();
     logDebug('Parse complete!');
 
   } catch (err) {
@@ -181,7 +162,9 @@ function createMeshFromVertexFile(vBuffer, texture = null) {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
   const indices = [];
-  for (let i = 0; i < totalVertices; i++) indices.push(i);
+  for (let i = 0; i < totalVertices; i++) {
+    indices.push(i);
+  }
   geometry.setIndex(indices);
 
   const material = new THREE.MeshStandardMaterial({
@@ -189,35 +172,39 @@ function createMeshFromVertexFile(vBuffer, texture = null) {
     map: texture,
     roughness: 0.4,
     side: THREE.DoubleSide,
-    wireframe: wireframeToggle.checked
+    wireframe: wireframeToggle ? wireframeToggle.checked : false
   });
 
   return new THREE.Mesh(geometry, material);
 }
 
-wireframeToggle.addEventListener('change', (e) => {
-  if (currentGroup) {
-    currentGroup.traverse((child) => {
-      if (child.isMesh) child.material.wireframe = e.target.checked;
-    });
-  }
-});
+if (wireframeToggle) {
+  wireframeToggle.addEventListener('change', (e) => {
+    if (currentGroup) {
+      currentGroup.traverse((child) => {
+        if (child.isMesh) child.material.wireframe = e.target.checked;
+      });
+    }
+  });
+}
 
-autoRotateToggle.addEventListener('change', (e) => {
-  controls.autoRotate = e.target.checked;
-});
+if (autoRotateToggle) {
+  autoRotateToggle.addEventListener('change', (e) => {
+    controls.autoRotate = e.target.checked;
+  });
+}
 
-resetCamBtn.addEventListener('click', () => {
-  camera.position.set(0, 5, 10);
-  controls.target.set(0, 0, 0);
-});
+if (resetCamBtn) {
+  resetCamBtn.addEventListener('click', () => {
+    camera.position.set(0, 5, 10);
+    controls.target.set(0, 0, 0);
+  });
+}
 
 window.addEventListener('resize', () => {
-  const w = container.clientWidth || window.innerWidth;
-  const h = container.clientHeight || window.innerHeight;
-  camera.aspect = w / h;
+  camera.aspect = container.clientWidth / container.clientHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
+  renderer.setSize(container.clientWidth, container.clientHeight);
 });
 
 function animate() {
