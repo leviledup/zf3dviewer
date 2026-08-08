@@ -37,7 +37,7 @@ const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
 debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D Bin-Conditional Parser:</b><br/>Ready...';
+debugBox.innerHTML = '<b>ZF3D Safe Bin Parser:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -75,22 +75,25 @@ async function parseZF3DContainer(file) {
     let totalVerts = 0;
     let totalFaces = 0;
 
-    // Check if the container includes a .bin file
     const binKey = entries.find(name => name.endsWith('.bin'));
 
     if (binKey) {
-      logDebug(`Detected .bin file: ${binKey}. Parsing packed binary format...`);
+      logDebug(`Detected .bin file: ${binKey}`);
       const binBuffer = await zip.files[binKey].async('arraybuffer');
       
-      // If it has a .bin file, handle parsing directly from the combined binary layout
-      const mesh = createMeshFromBuffer(binBuffer);
+      // Align buffer length to multiple of 4 bytes safely
+      const remainder = binBuffer.byteLength % 4;
+      const safeBuffer = remainder !== 0 ? binBuffer.slice(0, binBuffer.byteLength - remainder) : binBuffer;
+      logDebug(`Adjusted buffer size from ${binBuffer.byteLength} to ${safeBuffer.byteLength} bytes`);
+
+      const mesh = createMeshFromBuffer(safeBuffer);
       if (mesh) {
         currentGroup.add(mesh);
         totalVerts += mesh.geometry.attributes.position.count;
         totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
       }
     } else {
-      logDebug('No .bin file detected. Using standard XML/Vertex mapping...');
+      logDebug('No .bin file. Using standard XML/Vertex mapping...');
       
       if (entries.includes('main.xml')) {
         const xmlText = await zip.files['main.xml'].async('text');
@@ -119,7 +122,6 @@ async function parseZF3DContainer(file) {
         }
       }
 
-      // Fallback if XML submeshes weren't processed
       if (currentGroup.children.length === 0) {
         const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
         for (const vKey of vertexKeys) {
