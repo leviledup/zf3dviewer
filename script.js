@@ -17,7 +17,7 @@ container.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-// Lights & Grid Helper
+// Lighting & Grid Helper
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
 scene.add(ambientLight);
 
@@ -38,7 +38,7 @@ const wireframeToggle = document.getElementById('wireframeToggle');
 const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 
-// Handle File Loading
+// File Upload Handlers
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 
@@ -84,7 +84,7 @@ async function parseZF3DContainer(file) {
       const vertexBuffer = await zip.files[vertexEntry].async('arraybuffer');
       renderBinaryMesh(vertexBuffer);
     } else {
-      statusEl.textContent = 'Error: No .vertex file inside .zf3d';
+      statusEl.textContent = 'Error: No .vertex file found inside .zf3d';
     }
   } catch (err) {
     console.error(err);
@@ -92,15 +92,45 @@ async function parseZF3DContainer(file) {
   }
 }
 
-// Convert packed Float32 binary buffer into a Three.js Mesh
+// Fixed Binary Buffer Parsing (De-interleaving $X, Y, Z$ positions)
 function renderBinaryMesh(buffer) {
-  const floats = new Float32Array(buffer);
+  const fullFloats = new Float32Array(buffer);
   
-  // Standard stride assumption for vertices (X, Y, Z coordinates)
+  // -------------------------------------------------------------------
+  // FLARE3D STRIDE CONFIG:
+  // Default is 8 floats per vertex block (Pos3f + Norm3f + UV2f)
+  // If mesh shape looks weird, change STRIDE to 6, 10, or 12
+  // -------------------------------------------------------------------
+  const STRIDE = 8; 
+  const totalVertices = Math.floor(fullFloats.length / STRIDE);
+  
+  const positions = new Float32Array(totalVertices * 3);
+  const uvs = new Float32Array(totalVertices * 2);
+
+  for (let i = 0; i < totalVertices; i++) {
+    const srcOffset = i * STRIDE;
+    const dstPosOffset = i * 3;
+    const dstUvOffset = i * 2;
+
+    // 1. Extract Position (X, Y, Z) - Floats 0, 1, 2
+    positions[dstPosOffset]     = fullFloats[srcOffset + 0];
+    positions[dstPosOffset + 1] = fullFloats[srcOffset + 1];
+    positions[dstPosOffset + 2] = fullFloats[srcOffset + 2];
+
+    // 2. Extract UVs (U, V) - Floats 6 & 7
+    if (STRIDE >= 8) {
+      uvs[dstUvOffset]     = fullFloats[srcOffset + 6];
+      uvs[dstUvOffset + 1] = fullFloats[srcOffset + 7];
+    }
+  }
+
   const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   
-  // Assign positions attribute from packed floats
-  geometry.setAttribute('position', new THREE.BufferAttribute(floats, 3));
+  if (STRIDE >= 8) {
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  }
+
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
@@ -116,20 +146,20 @@ function renderBinaryMesh(buffer) {
   currentMesh = new THREE.Mesh(geometry, material);
   scene.add(currentMesh);
 
-  // Recenter Camera around Model Bounds
+  // Auto Recenter & Scale Camera to Model Bounds
   geometry.computeBoundingSphere();
-  const radius = geometry.boundingSphere.radius;
+  const radius = geometry.boundingSphere.radius || 10;
   currentMesh.position.sub(geometry.boundingSphere.center);
   camera.position.set(0, radius * 1.5, radius * 2.5);
   controls.target.set(0, 0, 0);
 
-  // Update UI Stats
+  // Update Sidebar UI Stats
   statusEl.textContent = 'Loaded successfully';
-  vertexCountEl.textContent = Math.floor(floats.length / 3).toLocaleString();
-  faceCountEl.textContent = Math.floor(floats.length / 9).toLocaleString();
+  vertexCountEl.textContent = totalVertices.toLocaleString();
+  faceCountEl.textContent = Math.floor(totalVertices / 3).toLocaleString();
 }
 
-// Controls Logic
+// UI Event Listeners
 wireframeToggle.addEventListener('change', (e) => {
   if (currentMesh) currentMesh.material.wireframe = e.target.checked;
 });
@@ -143,7 +173,7 @@ resetCamBtn.addEventListener('click', () => {
   controls.target.set(0, 0, 0);
 });
 
-// Window Resize & Animation Loop
+// Viewport Resize & Render Loop
 window.addEventListener('resize', () => {
   camera.aspect = container.clientWidth / container.clientHeight;
   camera.updateProjectionMatrix();
@@ -157,4 +187,3 @@ function animate() {
 }
 
 animate();
-
