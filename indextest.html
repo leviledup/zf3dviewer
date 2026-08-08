@@ -42,10 +42,7 @@
       );
       mix-blend-mode: overlay;
     }
-    #vignette {
-      position: fixed; inset: 0; pointer-events: none; z-index: 5;
-      box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.65);
-    }
+    /* vignette removed */
 
     #topbar {
       position: fixed; top: 0; left: 0; right: 0; z-index: 10;
@@ -187,7 +184,7 @@
 
 <div id="viewport"></div>
 <div id="scanlines"></div>
-<div id="vignette"></div>
+<!-- vignette removed -->
 
 <div id="topbar">
   <div class="brand">
@@ -248,7 +245,7 @@
     console.error('Uncaught error:', e.error || e.message);
   });
 
-  // ---------- minimal orbit controls ----------
+  // ---------- orbit controls ----------
   function OrbitLiteControls(camera, domElement){
     this.camera = camera;
     this.domElement = domElement;
@@ -356,19 +353,19 @@
   // ---------- scene setup ----------
   const viewportEl = document.getElementById('viewport');
   const scene = new THREE.Scene();
-  // Bright gradient: light blue to soft lavender
+  // Deep blue gradient
   const canvas = document.createElement('canvas');
   canvas.width = 2;
   canvas.height = 512;
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-  gradient.addColorStop(0, '#e8f0ff'); // very light blue
-  gradient.addColorStop(1, '#c0d0e8'); // soft lavender-blue
+  gradient.addColorStop(0, '#0a1a3a'); // deep blue top
+  gradient.addColorStop(1, '#040b18'); // very dark blue bottom
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 2, 512);
   const bgTexture = new THREE.CanvasTexture(canvas);
   scene.background = bgTexture;
-  scene.fog = new THREE.Fog(0xc0d0e8, 30, 140);
+  scene.fog = new THREE.Fog(0x0a1a3a, 30, 140);
 
   const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.01, 5000);
   camera.position.set(6, 5, 9);
@@ -385,7 +382,7 @@
   controls.minDistance = 0.1;
   controls.maxDistance = 500;
 
-  // --- Lighting: bright, clear, neutral ---
+  // --- Lighting: bright, neutral, with cool tint ---
   const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.9);
   scene.add(hemi);
 
@@ -500,7 +497,7 @@
     btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
   });
 
-  // ---------- ZF3D parsing ----------
+  // ---------- ZF3D parsing (improved) ----------
 
   function parseTransform(str){
     const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
@@ -514,6 +511,7 @@
     return m;
   }
 
+  // Expanded format info with more common types
   const FORMAT_INFO = {
     float1:  { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
     float2:  { count:2, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
@@ -527,6 +525,9 @@
     short4:  { count:4, bytes:2, read:(dv,o)=>dv.getInt16(o, true) },
     ushort2: { count:2, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
     ushort4: { count:4, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
+    // additional common ones
+    half2:   { count:2, bytes:2, read:(dv,o)=>dv.getUint16(o, true) }, // not real half but treat as ushort
+    half4:   { count:4, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
   };
   function getFormatInfo(fmt){
     const key = (fmt || '').toLowerCase();
@@ -538,10 +539,13 @@
   }
 
   function buildGeometry(surface, arrayBuffer){
+    // compute layout from inputs/formats
     let byteCursor = 0;
     const layout = {};
-    surface.inputs.forEach((name, idx) => {
-      const info = getFormatInfo(surface.formats[idx]);
+    const inputs = surface.inputs || [];
+    const formats = surface.formats || [];
+    inputs.forEach((name, idx) => {
+      const info = getFormatInfo(formats[idx] || 'float1');
       layout[name] = { byteOffset: byteCursor, count: info.count, bytes: info.bytes, read: info.read };
       byteCursor += info.count * info.bytes;
     });
@@ -549,6 +553,7 @@
     const byteStride = byteCursor || declaredStride;
     if (!byteStride) return null;
     const vertexCount = Math.floor(arrayBuffer.byteLength / byteStride);
+    if (vertexCount === 0) return null;
     const dv = new DataView(arrayBuffer);
 
     function extract(name){
@@ -565,17 +570,27 @@
     }
 
     const geometry = new THREE.BufferGeometry();
-    const pos = extract('POSITION');
+    // Try common position names
+    let pos = extract('POSITION');
+    if (!pos) pos = extract('POS');
+    if (!pos) pos = extract('VERTEX');
     if (pos) geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const norm = extract('NORMAL');
+
+    let norm = extract('NORMAL');
+    if (!norm) norm = extract('NORM');
     if (norm) geometry.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
-    const uv = extract('UV0');
+
+    let uv = extract('UV0');
+    if (!uv) uv = extract('TEXCOORD0');
+    if (!uv) uv = extract('UV');
     if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+
     const color = extract('COLOR');
     if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].count));
 
-    const skinIdxName = surface.inputs.includes('SKININDEX') ? 'SKININDEX' : (surface.inputs.includes('BLENDINDICES') ? 'BLENDINDICES' : null);
-    const skinWtName  = surface.inputs.includes('SKINWEIGHT') ? 'SKINWEIGHT' : (surface.inputs.includes('BLENDWEIGHT') ? 'BLENDWEIGHT' : null);
+    // skinning
+    const skinIdxName = inputs.find(n => /SKININDEX|BLENDINDICES/i.test(n));
+    const skinWtName = inputs.find(n => /SKINWEIGHT|BLENDWEIGHT/i.test(n));
     let hasSkin = false;
     if (skinIdxName && skinWtName){
       const skinIndex = extract(skinIdxName);
