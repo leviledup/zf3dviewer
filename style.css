@@ -1,4 +1,3 @@
-/* Reset & Base Layout */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -9,111 +8,85 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #0b0b0e;
-  color: #f3f4f6;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #0f0f12;
+  font-family: monospace;
+  color: #fff;
 }
 
-/* App Wrapper */
-.app-container {
-  display: flex;
+#viewport {
   width: 100vw;
   height: 100vh;
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
-/* Main Viewport Container - Fixes canvas disappearance */
-#viewport {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-  background: #0f0f12;
-}
-
-/* Ensure Three.js Canvas Fills Container Properly */
-#viewport canvas {
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
-}
-
-/* Drop Zone Overlay for File Loading */
 #dropZone {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  border: 2px dashed rgba(99, 102, 241, 0.3);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 15, 18, 0.7);
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  z-index: 10;
+  z-index: 2;
 }
 
-#dropZone.active {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* UI Controls Panel Overlay */
 .ui-panel {
   position: absolute;
   top: 16px;
   left: 16px;
-  background: rgba(20, 20, 28, 0.85);
+  background: rgba(15, 15, 18, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(8px);
-  padding: 14px;
-  border-radius: 8px;
-  width: 260px;
-  z-index: 100;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  padding: 12px;
+  border-radius: 6px;
+  width: 220px;
+  z-index: 10;
+  font-size: 11px;
 }
 
-.ui-panel h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.ui-panel h2 {
+  font-size: 13px;
+  margin-bottom: 8px;
   color: #818cf8;
-  margin-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 6px;
+  letter-spacing: 0.5px;
 }
 
 .ui-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .ui-row span:last-child {
   color: #9ca3af;
 }
 
-.ui-button {
+.ui-toggles {
+  margin: 8px 0;
+  display: flex;
+  gap: 10px;
+}
+
+.ui-toggles label {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ui-btn {
   width: 100%;
   background: #4f46e5;
   color: white;
   border: none;
-  padding: 6px 10px;
+  padding: 6px;
   border-radius: 4px;
+  cursor: pointer;
   font-family: inherit;
   font-size: 11px;
-  cursor: pointer;
-  margin-top: 6px;
-  transition: background 0.2s;
+  margin-top: 4px;
 }
 
-.ui-button:hover {
+.ui-btn:hover {
   background: #4338ca;
 }
