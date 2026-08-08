@@ -37,7 +37,7 @@ const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
 debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D Safe Bin Parser:</b><br/>Ready...';
+debugBox.innerHTML = '<b>ZF3D XML-Bin Parser:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -75,65 +75,56 @@ async function parseZF3DContainer(file) {
     let totalVerts = 0;
     let totalFaces = 0;
 
-    const binKey = entries.find(name => name.endsWith('.bin'));
-
-    if (binKey) {
-      logDebug(`Detected .bin file: ${binKey}`);
-      const binBuffer = await zip.files[binKey].async('arraybuffer');
+    // Read main.xml to find geometry bindings for bunny models
+    if (entries.includes('main.xml')) {
+      const xmlText = await zip.files['main.xml'].async('text');
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
       
-      // Align buffer length to multiple of 4 bytes safely
-      const remainder = binBuffer.byteLength % 4;
-      const safeBuffer = remainder !== 0 ? binBuffer.slice(0, binBuffer.byteLength - remainder) : binBuffer;
-      logDebug(`Adjusted buffer size from ${binBuffer.byteLength} to ${safeBuffer.byteLength} bytes`);
+      // Look for submesh or geometry nodes
+      const submeshes = xmlDoc.getElementsByTagName('submesh');
+      logDebug(`Found ${submeshes.length} submeshes in XML`);
 
-      const mesh = createMeshFromBuffer(safeBuffer);
-      if (mesh) {
-        currentGroup.add(mesh);
-        totalVerts += mesh.geometry.attributes.position.count;
-        totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-      }
-    } else {
-      logDebug('No .bin file. Using standard XML/Vertex mapping...');
-      
-      if (entries.includes('main.xml')) {
-        const xmlText = await zip.files['main.xml'].async('text');
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-        const submeshes = xmlDoc.getElementsByTagName('submesh');
+      if (submeshes.length > 0) {
+        for (let i = 0; i < submeshes.length; i++) {
+          const sm = submeshes[i];
+          const vertexFile = sm.getAttribute('vertex');
+          const indexFile = sm.getAttribute('index');
 
-        if (submeshes.length > 0) {
-          for (let i = 0; i < submeshes.length; i++) {
-            const sm = submeshes[i];
-            const vertexFile = sm.getAttribute('vertex');
-            const indexFile = sm.getAttribute('index');
-
-            if (vertexFile && zip.files[vertexFile]) {
-              const vBuffer = await zip.files[vertexFile].async('arraybuffer');
-              let iBuffer = (indexFile && zip.files[indexFile]) ? await zip.files[indexFile].async('arraybuffer') : null;
-              
-              const mesh = createMeshFromBuffer(vBuffer, iBuffer);
-              if (mesh) {
-                currentGroup.add(mesh);
-                totalVerts += mesh.geometry.attributes.position.count;
-                totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-              }
+          if (vertexFile && zip.files[vertexFile]) {
+            const vBuffer = await zip.files[vertexFile].async('arraybuffer');
+            let iBuffer = (indexFile && zip.files[indexFile]) ? await zip.files[indexFile].async('arraybuffer') : null;
+            
+            const mesh = createMeshFromBuffer(vBuffer, iBuffer);
+            if (mesh) {
+              currentGroup.add(mesh);
+              totalVerts += mesh.geometry.attributes.position.count;
+              totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
             }
           }
         }
       }
+    }
 
-      if (currentGroup.children.length === 0) {
-        const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
-        for (const vKey of vertexKeys) {
-          const vBuffer = await zip.files[vKey].async('arraybuffer');
-          const mesh = createMeshFromBuffer(vBuffer);
-          if (mesh) {
-            currentGroup.add(mesh);
-            totalVerts += mesh.geometry.attributes.position.count;
-            totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-          }
+    // Fallback: If XML didn't add meshes, load all .vertex files directly
+    if (currentGroup.children.length === 0) {
+      logDebug('Fallback: Loading all .vertex files...');
+      const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
+      for (const vKey of vertexKeys) {
+        const vBuffer = await zip.files[vKey].async('arraybuffer');
+        const mesh = createMeshFromBuffer(vBuffer);
+        if (mesh) {
+          currentGroup.add(mesh);
+          totalVerts += mesh.geometry.attributes.position.count;
+          totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
         }
       }
+    }
+
+    if (currentGroup.children.length === 0) {
+      logDebug('ERROR: No valid meshes could be constructed!');
+      statusEl.textContent = 'Failed to parse geometry';
+      return;
     }
 
     scene.add(currentGroup);
@@ -160,7 +151,10 @@ async function parseZF3DContainer(file) {
 }
 
 function createMeshFromBuffer(vBuffer, iBuffer = null) {
-  const floats = new Float32Array(vBuffer);
+  const remainder = vBuffer.byteLength % 4;
+  const safeBuffer = remainder !== 0 ? vBuffer.slice(0, vBuffer.byteLength - remainder) : vBuffer;
+  
+  const floats = new Float32Array(safeBuffer);
   const STRIDE_FLOATS = 8; 
   const totalVertices = Math.floor(floats.length / STRIDE_FLOATS);
   if (totalVertices <= 0) return null;
@@ -183,7 +177,9 @@ function createMeshFromBuffer(vBuffer, iBuffer = null) {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
   if (iBuffer) {
-    const indices = new Uint16Array(iBuffer);
+    const idxRemainder = iBuffer.byteLength % 2;
+    const safeIdxBuffer = idxRemainder !== 0 ? iBuffer.slice(0, iBuffer.byteLength - idxRemainder) : iBuffer;
+    const indices = new Uint16Array(safeIdxBuffer);
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   }
 
