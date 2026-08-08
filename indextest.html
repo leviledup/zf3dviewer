@@ -356,19 +356,19 @@
   // ---------- scene setup ----------
   const viewportEl = document.getElementById('viewport');
   const scene = new THREE.Scene();
-  // gradient background: blue to dark blue
+  // Bright gradient: light blue to soft lavender
   const canvas = document.createElement('canvas');
   canvas.width = 2;
   canvas.height = 512;
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-  gradient.addColorStop(0, '#0a1a2a'); // dark blue top
-  gradient.addColorStop(1, '#040b12'); // very dark blue bottom
+  gradient.addColorStop(0, '#e8f0ff'); // very light blue
+  gradient.addColorStop(1, '#c0d0e8'); // soft lavender-blue
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 2, 512);
   const bgTexture = new THREE.CanvasTexture(canvas);
   scene.background = bgTexture;
-  scene.fog = new THREE.Fog(0x0a1a2a, 30, 140);
+  scene.fog = new THREE.Fog(0xc0d0e8, 30, 140);
 
   const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.01, 5000);
   camera.position.set(6, 5, 9);
@@ -385,8 +385,8 @@
   controls.minDistance = 0.1;
   controls.maxDistance = 500;
 
-  // --- Lighting: bright, clear, with cool/warm balance ---
-  const hemi = new THREE.HemisphereLight(0x8dbfff, 0x0a1a2a, 0.9);
+  // --- Lighting: bright, clear, neutral ---
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.9);
   scene.add(hemi);
 
   const key = new THREE.DirectionalLight(0xffeedd, 1.6);
@@ -500,7 +500,7 @@
     btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
   });
 
-  // ---------- ZF3D parsing (unchanged logic, but animation fixed) ----------
+  // ---------- ZF3D parsing ----------
 
   function parseTransform(str){
     const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
@@ -840,7 +840,6 @@
       });
     }
 
-    // ANIMATION: better frame handling, ensure smooth playback
     const ANIMATION_FPS = 30;
     const animClip = await loadNodeAnimations(zip, animationDefsById, animatedNodes, ANIMATION_FPS);
 
@@ -961,7 +960,6 @@
         animAction.play();
         animAction.paused = true;
         btnAnim.disabled = false;
-        // set time to 0 so it starts from the beginning
         animAction.time = 0;
       }
 
