@@ -1,48 +1,797 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZF3D Viewer</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZF3D Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0a0c0a;
+    --panel:#12140f;
+    --panel-line:#2a2e22;
+    --amber:#ffb200;
+    --amber-dim:#8a6300;
+    --amber-faint:rgba(255,178,0,0.12);
+    --text:#d9d6c8;
+    --text-dim:#7a7a6c;
+    --mono:'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--ink);
+    font-family:var(--mono);
+    color:var(--text);
+    overflow:hidden;
+  }
+  #viewport{
+    position:fixed; inset:0;
+  }
+  #viewport canvas{ display:block; }
+
+  /* scanline / vignette overlay for the CRT-archaeology signature */
+  #scanlines{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:repeating-linear-gradient(
+      to bottom,
+      rgba(255,178,0,0.025) 0px,
+      rgba(255,178,0,0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode:overlay;
+  }
+  #vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.65);
+  }
+
+  /* top bar */
+  #topbar{
+    position:fixed; top:0; left:0; right:0; z-index:10;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px;
+    border-bottom:1px solid var(--panel-line);
+    background:linear-gradient(to bottom, rgba(10,12,10,0.92), rgba(10,12,10,0.0));
+    pointer-events:none;
+  }
+  #topbar .brand{
+    display:flex; align-items:baseline; gap:10px;
+    pointer-events:auto;
+  }
+  #topbar .brand .mark{
+    color:var(--amber); font-weight:700; letter-spacing:0.12em; font-size:13px;
+  }
+  #topbar .brand .sub{
+    color:var(--text-dim); font-size:11px; letter-spacing:0.06em;
+  }
+  #topbar .actions{
+    display:flex; gap:8px; pointer-events:auto;
+  }
+  button.chip{
+    font-family:var(--mono);
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    color:var(--text-dim);
+    font-size:11px;
+    letter-spacing:0.05em;
+    padding:7px 11px;
+    cursor:pointer;
+    transition:border-color 0.15s, color 0.15s;
+  }
+  button.chip:hover{
+    border-color:var(--amber-dim);
+    color:var(--text);
+  }
+  button.chip.active{
+    border-color:var(--amber);
+    color:var(--amber);
+    background:var(--amber-faint);
+  }
+
+  /* HUD readout, bottom-left */
+  #hud{
+    position:fixed; left:18px; bottom:18px; z-index:10;
+    font-size:11px; line-height:1.65;
+    color:var(--text-dim);
+    background:rgba(10,12,10,0.72);
+    border:1px solid var(--panel-line);
+    padding:12px 14px;
+    min-width:230px;
+    display:none;
+  }
+  #hud.visible{ display:block; }
+  #hud .row{ display:flex; justify-content:space-between; gap:16px; }
+  #hud .row .k{ color:var(--text-dim); }
+  #hud .row .v{ color:var(--text); text-align:right; }
+  #hud .filename{
+    color:var(--amber); font-weight:700; font-size:12px;
+    margin-bottom:8px; word-break:break-all;
+    letter-spacing:0.02em;
+  }
+  #hud hr{ border:none; border-top:1px solid var(--panel-line); margin:8px 0; }
+
+  /* drop zone */
+  #dropzone{
+    position:fixed; inset:0; z-index:20;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  #dropzone .frame{
+    width:min(560px, 86vw);
+    border:1px solid var(--panel-line);
+    background:rgba(18,20,15,0.55);
+    padding:48px 40px;
+    text-align:center;
+    transition:border-color 0.2s, background 0.2s;
+  }
+  #dropzone.drag .frame{
+    border-color:var(--amber);
+    background:var(--amber-faint);
+  }
+  #dropzone .glyph{
+    font-size:11px; color:var(--amber-dim); letter-spacing:0.3em;
+    margin-bottom:18px;
+  }
+  #dropzone h1{
+    font-size:16px; font-weight:700; color:var(--text);
+    margin:0 0 10px; letter-spacing:0.02em;
+  }
+  #dropzone p{
+    font-size:12px; color:var(--text-dim); margin:0 0 22px; line-height:1.6;
+  }
+  #dropzone .cta{
+    display:inline-block;
+    border:1px solid var(--amber-dim);
+    color:var(--amber);
+    padding:9px 18px;
+    font-size:11px;
+    letter-spacing:0.08em;
+  }
+  #dropzone .cursor{
+    display:inline-block; width:7px; height:12px; background:var(--amber);
+    margin-left:2px; vertical-align:-2px;
+    animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  #status{
+    position:fixed; z-index:25; left:50%; top:50%; transform:translate(-50%,-50%);
+    color:var(--amber); font-size:12px; letter-spacing:0.08em; display:none;
+  }
+  #status.visible{ display:block; }
+
+  #errbox{
+    position:fixed; z-index:30; left:50%; bottom:26px; transform:translateX(-50%);
+    border:1px solid #7a2c2c; background:rgba(30,10,10,0.9); color:#ff8f8f;
+    font-size:11px; padding:10px 16px; display:none; max-width:80vw;
+  }
+  #errbox.visible{ display:block; }
+
+  input[type=file]{ display:none; }
+
+  @media (max-width:600px){
+    #hud{ min-width:180px; font-size:10px; }
+    #dropzone .frame{ padding:32px 22px; }
+  }
+</style>
 </head>
 <body>
 
-  <div id="viewport"></div>
+<div id="viewport"></div>
+<div id="scanlines"></div>
+<div id="vignette"></div>
 
-  <div class="content-container">
-    <div class="ui-panel">
-      <h2>ZF3D Viewer</h2>
-      <div class="ui-row"><span>Status:</span> <span id="status">Idle</span></div>
-      <div class="ui-row"><span>Vertices:</span> <span id="vertexCount">0</span></div>
-      <div class="ui-row"><span>Faces:</span> <span id="faceCount">0</span></div>
-      <div class="ui-row"><span>Bones:</span> <span id="boneCount">0</span></div>
-      
-      <div class="ui-toggles">
-        <label><input type="checkbox" id="wireframeToggle"> Wireframe</label>
-        <label><input type="checkbox" id="autoRotateToggle"> Auto Rotate</label>
-      </div>
-
-      <button id="resetCamBtn" class="ui-btn">Reset Camera</button>
-    </div>
-
-    <div id="dropZone" class="drop-zone">
-      <p>Drag & drop a <strong>.zf3d</strong> or raw binary files here</p>
-      <span>or</span>
-      <input type="file" id="fileInput" accept=".zip,.zf3d" style="display: none;">
-      <button class="ui-btn" onclick="document.getElementById('fileInput').click()">Browse Files</button>
-    </div>
+<div id="topbar">
+  <div class="brand">
+    <span class="mark">ZF3D</span>
+    <span class="sub">Flare3D model viewer</span>
   </div>
+  <div class="actions">
+    <button class="chip" id="btnLoad">OPEN FILE</button>
+    <button class="chip" id="btnWire">WIREFRAME</button>
+    <button class="chip" id="btnSpin">AUTOROTATE</button>
+    <button class="chip active" id="btnGrid">GRID</button>
+  </div>
+</div>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+<div id="hud">
+  <div class="filename" id="hudName">—</div>
+  <div class="row"><span class="k">format</span><span class="v">Flare3D (.zf3d)</span></div>
+  <div class="row"><span class="k">nodes</span><span class="v" id="hudNodes">0</span></div>
+  <div class="row"><span class="k">surfaces</span><span class="v" id="hudSurfaces">0</span></div>
+  <div class="row"><span class="k">triangles</span><span class="v" id="hudTris">0</span></div>
+  <div class="row"><span class="k">materials</span><span class="v" id="hudMats">0</span></div>
+  <hr>
+  <div class="row"><span class="k">bones</span><span class="v" id="hudBones">0</span></div>
+  <div class="row"><span class="k">animation</span><span class="v" id="hudAnim">none</span></div>
+</div>
+
+<div id="dropzone">
+  <div class="frame">
+    <div class="glyph">FIRST EVER ZF3D FILE VIEWER</div>
+    <h1>Drop a .zf3d file to inspect it<span class="cursor"></span></h1>
+    <p>Flare3D model viewing straight from your browser!</p>
+    <div class="cta">SELECT FILE</div>
+  </div>
+</div>
+
+<div id="status">PARSING…</div>
+<div id="errbox"></div>
+<input type="file" id="fileInput" accept=".zf3d,application/zip,application/x-zip-compressed,application/octet-stream">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<script>
+(function(){
+
+  if (typeof THREE === 'undefined' || typeof JSZip === 'undefined'){
+    document.body.innerHTML =
+      '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'background:#0a0c0a;color:#ff8f8f;font-family:monospace;font-size:13px;text-align:center;padding:20px;">' +
+      'Could not load required scripts (three.js / JSZip) from cdnjs.cloudflare.com.<br>' +
+      'Check your network connection or content-blocker and reload the page.</div>';
+    return;
+  }
+
+  window.addEventListener('error', (e) => {
+    console.error('Uncaught error:', e.error || e.message);
+  });
+
+  // ---------- minimal dependency-free orbit controls ----------
+  // (OrbitControls.js isn't published on cdnjs as a standalone file,
+  // and this environment only allow-lists cdnjs — so it's reimplemented
+  // here rather than pulled from another CDN host.)
+  function OrbitLiteControls(camera, domElement){
+    this.camera = camera;
+    this.domElement = domElement;
+    this.target = new THREE.Vector3();
+    this.enableDamping = true;
+    this.dampingFactor = 0.08;
+    this.minDistance = 0.01;
+    this.maxDistance = 1e6;
+    this.rotateSpeed = 1;
+    this.panSpeed = 1;
+
+    const sphericalDelta = new THREE.Spherical();
+    let scale = 1;
+    const pointers = new Map();
+    let mode = null;
+    let pinchStartDist = 0;
+
+    domElement.style.touchAction = 'none';
+
+    const onPointerDown = (e) => {
+      domElement.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1){
+        mode = (e.button === 2 || e.shiftKey) ? 'pan' : 'rotate';
+      } else if (pointers.size === 2){
+        mode = 'pinch';
+        const pts = Array.from(pointers.values());
+        pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       }
+    };
+
+    const onPointerMove = (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      const prev = pointers.get(e.pointerId);
+      const dx = e.clientX - prev.x;
+      const dy = e.clientY - prev.y;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (mode === 'rotate' && pointers.size === 1){
+        sphericalDelta.theta -= 2 * Math.PI * dx / domElement.clientHeight * this.rotateSpeed;
+        sphericalDelta.phi -= 2 * Math.PI * dy / domElement.clientHeight * this.rotateSpeed;
+      } else if (mode === 'pan' && pointers.size === 1){
+        pan(dx, dy);
+      } else if (mode === 'pinch' && pointers.size === 2){
+        const pts = Array.from(pointers.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (pinchStartDist > 0) scale /= (dist / pinchStartDist);
+        pinchStartDist = dist;
+      }
+    };
+
+    const onPointerUp = (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size === 0) mode = null;
+    };
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const zoomFactor = 0.95;
+      scale *= (e.deltaY < 0) ? zoomFactor : (1 / zoomFactor);
+    };
+
+    const pan = (dx, dy) => {
+      const offset = new THREE.Vector3().copy(camera.position).sub(this.target);
+      const targetDistance = offset.length() * Math.tan((camera.fov / 2) * Math.PI / 180);
+      const panX = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      const panY = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      const panOffset = new THREE.Vector3();
+      panOffset.addScaledVector(panX, -dx * targetDistance * 2 / domElement.clientHeight * this.panSpeed);
+      panOffset.addScaledVector(panY, dy * targetDistance * 2 / domElement.clientHeight * this.panSpeed);
+      this.target.add(panOffset);
+      camera.position.add(panOffset);
+    };
+
+    domElement.addEventListener('pointerdown', onPointerDown);
+    domElement.addEventListener('pointermove', onPointerMove);
+    domElement.addEventListener('pointerup', onPointerUp);
+    domElement.addEventListener('pointercancel', onPointerUp);
+    domElement.addEventListener('wheel', onWheel, { passive: false });
+    domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    this.update = () => {
+      const offset = new THREE.Vector3().copy(camera.position).sub(this.target);
+      const spherical = new THREE.Spherical().setFromVector3(offset);
+      spherical.theta += sphericalDelta.theta;
+      spherical.phi += sphericalDelta.phi;
+      spherical.phi = Math.max(0.001, Math.min(Math.PI - 0.001, spherical.phi));
+      spherical.radius = Math.max(this.minDistance, Math.min(this.maxDistance, spherical.radius * scale));
+      offset.setFromSpherical(spherical);
+      camera.position.copy(this.target).add(offset);
+      camera.lookAt(this.target);
+
+      if (this.enableDamping){
+        sphericalDelta.theta *= (1 - this.dampingFactor);
+        sphericalDelta.phi *= (1 - this.dampingFactor);
+        scale = 1 + (scale - 1) * (1 - this.dampingFactor);
+      } else {
+        sphericalDelta.theta = 0;
+        sphericalDelta.phi = 0;
+        scale = 1;
+      }
+    };
+  }
+
+  // ---------- three.js scene setup ----------
+  const viewportEl = document.getElementById('viewport');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0c0a);
+  scene.fog = new THREE.Fog(0x0a0c0a, 30, 140);
+
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.01, 5000);
+  camera.position.set(6, 5, 9);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  viewportEl.appendChild(renderer.domElement);
+
+  const controls = new OrbitLiteControls(camera, renderer.domElement);
+  controls.minDistance = 0.1;
+  controls.maxDistance = 500;
+
+  const hemi = new THREE.HemisphereLight(0xfff2d0, 0x1a1408, 0.9);
+  scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xffe3ad, 1.15);
+  key.position.set(5, 9, 6);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x6fa8ff, 0.35);
+  rim.position.set(-6, 3, -4);
+  scene.add(rim);
+  const fill = new THREE.AmbientLight(0x404040, 0.4);
+  scene.add(fill);
+
+  const grid = new THREE.GridHelper(40, 40, 0x8a6300, 0x22251a);
+  grid.material.transparent = true;
+  grid.material.opacity = 0.35;
+  scene.add(grid);
+
+  let modelRoot = null;
+  let wireframeOn = false;
+  let autorotate = false;
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if (autorotate && modelRoot) modelRoot.rotation.y += 0.004;
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------- UI wiring ----------
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const statusEl = document.getElementById('status');
+  const errEl = document.getElementById('errbox');
+  const hud = document.getElementById('hud');
+
+  function showStatus(msg){ statusEl.textContent = msg; statusEl.classList.add('visible'); }
+  function hideStatus(){ statusEl.classList.remove('visible'); }
+  function showError(msg){
+    errEl.textContent = 'ERROR — ' + msg;
+    errEl.classList.add('visible');
+    setTimeout(() => errEl.classList.remove('visible'), 6000);
+  }
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  document.getElementById('btnLoad').addEventListener('click', () => fileInput.click());
+
+  ['dragenter','dragover'].forEach(evt => {
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(evt => {
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (f) handleFile(f);
+  });
+
+  document.getElementById('btnWire').addEventListener('click', (e) => {
+    wireframeOn = !wireframeOn;
+    e.target.classList.toggle('active', wireframeOn);
+    if (modelRoot) modelRoot.traverse(o => { if (o.isMesh) o.material.wireframe = wireframeOn; });
+  });
+  document.getElementById('btnSpin').addEventListener('click', (e) => {
+    autorotate = !autorotate;
+    e.target.classList.toggle('active', autorotate);
+  });
+  document.getElementById('btnGrid').addEventListener('click', (e) => {
+    grid.visible = !grid.visible;
+    e.target.classList.toggle('active', grid.visible);
+  });
+
+  // ---------- ZF3D parsing ----------
+
+  function parseTransform(str){
+    const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
+    const m = new THREE.Matrix4();
+    m.set(
+      v[0], v[1], v[2], v[9],
+      v[3], v[4], v[5], v[10],
+      v[6], v[7], v[8], v[11],
+      0,    0,    0,    1
+    );
+    return m;
+  }
+
+  function formatComponentCount(fmt){
+    // "float3" -> 3, "float4" -> 4, "float2" -> 2, "float1" -> 1
+    const m = /float(\d+)/.exec(fmt || '');
+    return m ? parseInt(m[1], 10) : 1;
+  }
+
+  function buildGeometry(surface, arrayBuffer){
+    const floats = new Float32Array(arrayBuffer);
+    const stride = surface.sizePerVertex;
+    const vertexCount = Math.floor(floats.length / stride);
+
+    let offset = 0;
+    const layout = {};
+    surface.inputs.forEach((name, idx) => {
+      const size = formatComponentCount(surface.formats[idx]);
+      layout[name] = { offset, size };
+      offset += size;
+    });
+
+    function extract(name){
+      const spec = layout[name];
+      if (!spec) return null;
+      const arr = new Float32Array(vertexCount * spec.size);
+      for (let i = 0; i < vertexCount; i++){
+        const base = i * stride + spec.offset;
+        for (let c = 0; c < spec.size; c++){
+          arr[i * spec.size + c] = floats[base + c];
+        }
+      }
+      return arr;
     }
-  </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script type="module" src="main.js"></script>
+
+    const geometry = new THREE.BufferGeometry();
+    const pos = extract('POSITION');
+    if (pos) geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+    const norm = extract('NORMAL');
+    if (norm) geometry.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+
+    const uv = extract('UV0');
+    if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+
+    const color = extract('COLOR');
+    if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].size));
+
+    if (!norm) geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  async function parseZf3d(file){
+    const buf = await file.arrayBuffer();
+    if (!buf || buf.byteLength === 0){
+      throw new Error('the selected file is empty (0 bytes)');
+    }
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(buf);
+    } catch (zipErr){
+      throw new Error('could not open as a zip archive — is this really a .zf3d file? (' + zipErr.message + ')');
+    }
+
+    // locate the scene xml (top-level .xml entry)
+    let xmlEntry = null;
+    zip.forEach((path, entry) => {
+      if (!xmlEntry && /\.xml$/i.test(path)) xmlEntry = entry;
+    });
+    if (!xmlEntry) throw new Error('no scene .xml found inside archive');
+
+    const xmlText = await xmlEntry.async('text');
+    const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (xmlDoc.querySelector('parsererror')) throw new Error('scene xml failed to parse');
+    const root = xmlDoc.documentElement;
+
+    // surfaces (geometry descriptors)
+    const surfacesById = {};
+    const surfacesParent = root.querySelector(':scope > surfaces');
+    if (surfacesParent){
+      surfacesParent.querySelectorAll(':scope > surface').forEach(el => {
+        surfacesById[el.getAttribute('id')] = {
+          id: el.getAttribute('id'),
+          source: el.getAttribute('source'),
+          name: el.getAttribute('name'),
+          sizePerVertex: parseInt(el.getAttribute('sizePerVertex'), 10) || 0,
+          numTriangles: parseInt(el.getAttribute('numTriangles'), 10) || 0,
+          inputs: (el.getAttribute('inputs') || '').split(',').filter(Boolean),
+          formats: (el.getAttribute('formats') || '').split(',').filter(Boolean),
+        };
+      });
+    }
+
+    // texture maps
+    const mapsById = {};
+    const mapsParent = root.querySelector(':scope > maps');
+    if (mapsParent){
+      mapsParent.querySelectorAll(':scope > map').forEach(el => {
+        mapsById[el.getAttribute('id')] = { source: el.getAttribute('source') };
+      });
+    }
+
+    // filters -> which map id they sample
+    const filtersById = {};
+    const filtersParent = root.querySelector(':scope > filters');
+    if (filtersParent){
+      filtersParent.querySelectorAll(':scope > filter').forEach(el => {
+        const sampler = el.querySelector('sampler[map]');
+        filtersById[el.getAttribute('id')] = {
+          mapId: sampler ? sampler.getAttribute('map') : null
+        };
+      });
+    }
+
+    // materials -> resolved texture map id
+    const materialDefs = {};
+    const materialsParent = root.querySelector(':scope > materials');
+    if (materialsParent){
+      materialsParent.querySelectorAll(':scope > material').forEach(el => {
+        const shader = el.querySelector('shader');
+        const filterIds = shader && shader.getAttribute('filters') ? shader.getAttribute('filters').split(',') : [];
+        let mapId = null;
+        for (const fid of filterIds){
+          if (filtersById[fid] && filtersById[fid].mapId){ mapId = filtersById[fid].mapId; break; }
+        }
+        materialDefs[el.getAttribute('id')] = {
+          name: el.getAttribute('name'),
+          twoSided: el.getAttribute('twoSided') === 'true',
+          transparent: el.getAttribute('transparent') === 'true',
+          mapId
+        };
+      });
+    }
+
+    // gather which surfaces / maps are actually referenced by mesh nodes
+    const meshNodeEls = Array.from(root.querySelectorAll('nodes node[type="mesh"]'));
+    const neededSurfaceIds = new Set();
+    const neededMaterialIds = new Set();
+    meshNodeEls.forEach(el => {
+      (el.getAttribute('surfaces') || '').split(',').filter(Boolean).forEach(id => neededSurfaceIds.add(id));
+      (el.getAttribute('materials') || '').split(',').filter(Boolean).forEach(id => neededMaterialIds.add(id));
+    });
+
+    // load + build geometries for needed surfaces that carry POSITION data
+    const geometryCache = {};
+    let triangleTotal = 0;
+    await Promise.all(Array.from(neededSurfaceIds).map(async (sid) => {
+      const surface = surfacesById[sid];
+      if (!surface || !surface.inputs.includes('POSITION')) return;
+      const fileName = surface.source + '.vertex';
+      const entry = zip.file(fileName);
+      if (!entry) return;
+      const arrayBuffer = await entry.async('arraybuffer');
+      geometryCache[sid] = buildGeometry(surface, arrayBuffer);
+      triangleTotal += surface.numTriangles;
+    }));
+
+    // load textures for needed materials
+    const textureCache = {};
+    const usedMapIds = new Set();
+    neededMaterialIds.forEach(mid => {
+      const def = materialDefs[mid];
+      if (def && def.mapId) usedMapIds.add(def.mapId);
+    });
+    await Promise.all(Array.from(usedMapIds).map(async (mapId) => {
+      const mapDef = mapsById[mapId];
+      if (!mapDef || !mapDef.source) return;
+      const entry = zip.file(mapDef.source);
+      if (!entry) return;
+      const blob = await entry.async('blob');
+      const url = URL.createObjectURL(blob);
+      const tex = await new Promise((resolve, reject) => {
+        new THREE.TextureLoader().load(url, resolve, undefined, reject);
+      });
+      tex.encoding = THREE.sRGBEncoding;
+      tex.flipY = true;
+      textureCache[mapId] = tex;
+    }));
+
+    // build three.js materials
+    const materialCache = {};
+    neededMaterialIds.forEach(mid => {
+      const def = materialDefs[mid] || {};
+      materialCache[mid] = new THREE.MeshStandardMaterial({
+        map: def.mapId ? textureCache[def.mapId] : null,
+        color: def.mapId ? 0xffffff : 0xb8b6a8,
+        side: def.twoSided ? THREE.DoubleSide : THREE.FrontSide,
+        transparent: !!def.transparent,
+        roughness: 0.85,
+        metalness: 0.05,
+      });
+    });
+    const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x8a8672, roughness: 0.9 });
+
+    // walk node tree
+    const group = new THREE.Group();
+    let nodeCount = 0;
+    let meshCount = 0;
+    let boneCount = 0;
+
+    function walk(el, parent){
+      nodeCount++;
+      const type = el.getAttribute('type');
+      const node = new THREE.Group();
+      node.name = el.getAttribute('name') || el.getAttribute('id') || '';
+      node.matrix.copy(parseTransform(el.getAttribute('transform')));
+      node.matrixAutoUpdate = false;
+      node.visible = el.getAttribute('visible') !== 'false';
+      parent.add(node);
+
+      if (type === 'bone' || /^bn_|_bn_/.test(node.name)) boneCount++;
+
+      if (type === 'mesh'){
+        const surfaceIds = (el.getAttribute('surfaces') || '').split(',').filter(Boolean);
+        const materialIds = (el.getAttribute('materials') || '').split(',').filter(Boolean);
+        surfaceIds.forEach((sid, idx) => {
+          const geometry = geometryCache[sid];
+          if (!geometry) return;
+          const mat = materialCache[materialIds[idx]] || fallbackMaterial;
+          const mesh = new THREE.Mesh(geometry, mat.clone());
+          mesh.name = (surfacesById[sid] && surfacesById[sid].name) || sid;
+          node.add(mesh);
+          meshCount++;
+        });
+      }
+
+      Array.from(el.children).forEach(child => {
+        if (child.tagName === 'node') walk(child, node);
+      });
+    }
+
+    const nodesParent = root.querySelector(':scope > nodes');
+    if (nodesParent){
+      Array.from(nodesParent.children).forEach(el => {
+        if (el.tagName === 'node') walk(el, group);
+      });
+    }
+
+    const hasAnimation = !!root.querySelector('animations > *');
+
+    return {
+      group,
+      stats: {
+        nodeCount,
+        meshCount,
+        surfaceCount: neededSurfaceIds.size,
+        materialCount: neededMaterialIds.size,
+        triangleTotal,
+        boneCount,
+        hasAnimation,
+      }
+    };
+  }
+
+  function frameCamera(object3d){
+    object3d.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(object3d);
+    if (box.isEmpty()) return;
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = maxDim * 1.6 / Math.tan((camera.fov * Math.PI/180) / 2);
+
+    camera.position.set(
+      center.x + dist * 0.55,
+      center.y + dist * 0.4,
+      center.z + dist * 0.55
+    );
+    camera.near = Math.max(maxDim / 500, 0.001);
+    camera.far = maxDim * 50;
+    camera.updateProjectionMatrix();
+
+    controls.target.copy(center);
+    controls.update();
+
+    grid.position.y = box.min.y;
+    const gridScale = Math.max(maxDim * 2, 4) / 40;
+    grid.scale.set(gridScale, 1, gridScale);
+  }
+
+  async function handleFile(file){
+    if (!file){
+      showError('no file received from picker');
+      return;
+    }
+    if (!/\.zf3d$/i.test(file.name)){
+      // Some mobile pickers / share sheets strip or mangle the extension.
+      // Don't block — just warn and still attempt to parse it as a zip.
+      console.warn('file name does not end in .zf3d, attempting to parse anyway:', file.name);
+    }
+    showStatus('PARSING ' + (file.name || 'FILE').toUpperCase() + '…');
+    try {
+      const result = await parseZf3d(file);
+
+      if (modelRoot){
+        scene.remove(modelRoot);
+        modelRoot.traverse(o => {
+          if (o.isMesh){
+            o.geometry.dispose();
+            if (o.material.map) o.material.map.dispose();
+            o.material.dispose();
+          }
+        });
+      }
+
+      modelRoot = result.group;
+      modelRoot.traverse(o => { if (o.isMesh) o.material.wireframe = wireframeOn; });
+      scene.add(modelRoot);
+      frameCamera(modelRoot);
+
+      dropzone.style.display = 'none';
+      hud.classList.add('visible');
+      document.getElementById('hudName').textContent = file.name;
+      document.getElementById('hudNodes').textContent = result.stats.nodeCount;
+      document.getElementById('hudSurfaces').textContent = result.stats.surfaceCount + ' (' + result.stats.meshCount + ' mesh)';
+      document.getElementById('hudTris').textContent = result.stats.triangleTotal.toLocaleString();
+      document.getElementById('hudMats').textContent = result.stats.materialCount;
+      document.getElementById('hudBones').textContent = result.stats.boneCount;
+      document.getElementById('hudAnim').textContent = result.stats.hasAnimation ? 'present' : 'none (bind pose)';
+
+      hideStatus();
+    } catch (err){
+      console.error(err);
+      hideStatus();
+      showError(err.message || String(err));
+    }
+  }
+
+})();
+</script>
 </body>
 </html>
