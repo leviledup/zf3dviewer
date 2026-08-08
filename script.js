@@ -11,7 +11,14 @@ const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 const fileInput = document.getElementById('fileInput');
 
-// 1. Ensure safe initial dimensions to prevent collapse
+// Make sure Open Archive button triggers the hidden file input click
+const openArchiveBtn = document.getElementById('openArchiveBtn');
+if (openArchiveBtn && fileInput) {
+  openArchiveBtn.addEventListener('click', () => {
+    fileInput.click();
+  });
+}
+
 const width = container.clientWidth || window.innerWidth;
 const height = container.clientHeight || window.innerHeight;
 
@@ -25,7 +32,6 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(width, height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-// Explicitly ensure the canvas styling forces full container coverage
 renderer.domElement.style.position = 'absolute';
 renderer.domElement.style.top = '0';
 renderer.domElement.style.left = '0';
@@ -50,7 +56,6 @@ scene.add(grid);
 
 let currentGroup = null;
 
-// Debug overlay box inside viewport
 const debugBox = document.createElement('div');
 debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:300px; max-height:140px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:9px; padding:6px; overflow-y:auto; border-radius:4px; z-index:99; pointer-events:none;';
 debugBox.innerHTML = '<b>ZF3D Log:</b> Ready...';
@@ -62,10 +67,21 @@ function logDebug(text) {
   debugBox.scrollTop = debugBox.scrollHeight;
 }
 
-// File Input Event Listener
-fileInput.addEventListener('change', (e) => {
-  if (e.target.files.length) {
-    parseZF3DContainer(e.target.files[0]);
+if (fileInput) {
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      parseZF3DContainer(e.target.files[0]);
+    }
+  });
+}
+
+// Drag and drop support directly on the viewport
+container.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+container.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    parseZF3DContainer(e.dataTransfer.files[0]);
   }
 });
 
@@ -80,8 +96,8 @@ async function parseZF3DContainer(file) {
     currentGroup = new THREE.Group();
 
     let totalVerts = 0;
-    let totalFaces = 640; // Default from your XML spec
-    let totalBones = 30;  // Default skeleton bones count
+    let totalFaces = 640;
+    let totalBones = 30;
 
     if (zip.files['34.vertex']) {
       const vBuffer = await zip.files['34.vertex'].async('arraybuffer');
@@ -100,7 +116,7 @@ async function parseZF3DContainer(file) {
         logDebug('Loaded 34.vertex successfully');
       }
     } else {
-      logDebug('ERROR: 34.vertex missing!');
+      logDebug('ERROR: 34.vertex missing from zip!');
     }
 
     if (currentGroup.children.length === 0) {
@@ -110,7 +126,6 @@ async function parseZF3DContainer(file) {
 
     scene.add(currentGroup);
 
-    // Center camera on object bounding box
     const box = new THREE.Box3().setFromObject(currentGroup);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -138,7 +153,7 @@ function createMeshFromVertexFile(vBuffer, texture = null) {
   const safeBuffer = remainder !== 0 ? vBuffer.slice(0, vBuffer.byteLength - remainder) : vBuffer;
   
   const floats = new Float32Array(safeBuffer);
-  const STRIDE_FLOATS = 11; // pos(3), normal(3), uv(2), color(3)
+  const STRIDE_FLOATS = 11;
   const totalVertices = Math.floor(floats.length / STRIDE_FLOATS);
   if (totalVertices <= 0) return null;
 
