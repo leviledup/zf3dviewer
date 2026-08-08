@@ -8,25 +8,30 @@
 </head>
 <body>
 
-  <div id="viewport">
-    <div id="dropZone"></div>
-  </div>
+  <div id="viewport"></div>
 
-  <div class="ui-panel">
-    <h2>ZF3D Viewer</h2>
-    <div class="ui-row"><span>Status:</span> <span id="status">Idle</span></div>
-    <div class="ui-row"><span>Vertices:</span> <span id="vertexCount">0</span></div>
-    <div class="ui-row"><span>Faces:</span> <span id="faceCount">0</span></div>
-    <div class="ui-row"><span>Bones:</span> <span id="boneCount">0</span></div>
-    
-    <div class="ui-toggles">
-      <label><input type="checkbox" id="wireframeToggle"> Wireframe</label>
-      <label><input type="checkbox" id="autoRotateToggle"> Auto Rotate</label>
+  <div class="content-container">
+    <div class="ui-panel">
+      <h2>ZF3D Viewer</h2>
+      <div class="ui-row"><span>Status:</span> <span id="status">Idle</span></div>
+      <div class="ui-row"><span>Vertices:</span> <span id="vertexCount">0</span></div>
+      <div class="ui-row"><span>Faces:</span> <span id="faceCount">0</span></div>
+      <div class="ui-row"><span>Bones:</span> <span id="boneCount">0</span></div>
+      
+      <div class="ui-toggles">
+        <label><input type="checkbox" id="wireframeToggle"> Wireframe</label>
+        <label><input type="checkbox" id="autoRotateToggle"> Auto Rotate</label>
+      </div>
+
+      <button id="resetCamBtn" class="ui-btn">Reset Camera</button>
     </div>
 
-    <button id="resetCamBtn" class="ui-btn">Reset Camera</button>
-    <input type="file" id="fileInput" accept=".zip" style="display: none;">
-    <button class="ui-btn" onclick="document.getElementById('fileInput').click()">Open Archive</button>
+    <div id="dropZone" class="drop-zone">
+      <p>Drag & drop a <strong>.zf3d</strong> or raw binary files here</p>
+      <span>or</span>
+      <input type="file" id="fileInput" accept=".zip,.zf3d" style="display: none;">
+      <button class="ui-btn" onclick="document.getElementById('fileInput').click()">Browse Files</button>
+    </div>
   </div>
 
   <script type="importmap">
