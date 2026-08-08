@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZF3D Viewer</title>
+    <style>
+        /* --- Reset & fullscreen --- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            overflow: hidden;
+            background: #0a0c0a;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+
+        /* --- Info overlay (top-left) --- */
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 24px;
+            color: #ddd;
+            background: rgba(10, 12, 10, 0.75);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 16px 22px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 14px;
+            line-height: 1.6;
+            user-select: none;
+            pointer-events: none;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+            max-width: 280px;
+        }
+        #info h1 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #fff;
+            letter-spacing: 0.3px;
+        }
+        #info .sub {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 2px;
+        }
+        #info .status {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 12px;
+            color: #8a8;
+        }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .dot.loading {
+            background: #f0b34b;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .dot.loaded {
+            background: #6c6;
+        }
+        @keyframes pulse {
+            0%,
+            100% {
+                opacity: 0.3;
+                transform: scale(0.9);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+        }
+
+        /* --- Controls hint (bottom-center) --- */
+        #hint {
+            position: fixed;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            padding: 10px 22px;
+            border-radius: 30px;
+            font-size: 13px;
+            letter-spacing: 0.4px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            user-select: none;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        /* --- Responsive tweaks --- */
+        @media (max-width: 600px) {
+            #info {
+                top: 12px;
+                left: 12px;
+                padding: 12px 16px;
+                font-size: 12px;
+                max-width: 200px;
+            }
+            #info h1 {
+                font-size: 15px;
+            }
+            #hint {
+                font-size: 11px;
+                padding: 7px 16px;
+                bottom: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlays -->
+    <div id="info">
+        <h1>✦ ZF3D Viewer</h1>
+        <div class="sub">Interactive 3D Model</div>
+        <div class="status">
+            <span class="dot loading" id="statusDot"></span>
+            <span id="statusText">Loading…</span>
+        </div>
+    </div>
+    <div id="hint">🖱 Drag to rotate · Scroll to zoom</div>
+
+    <!-- ===== Three.js from CDN ===== -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- ===== MAIN APP ===== -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+        // --- DOM refs ---
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        // --- Scene ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x141a14); // slightly lighter than pure black
+
+        // --- Camera ---
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+        camera.position.set(12, 8, 16);
+        camera.lookAt(0, 0, 0);
+
+        // --- Renderer ---
+        const renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: false,
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        document.body.prepend(renderer.domElement);
+
+        // --- Controls ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 1.8;
+        controls.minDistance = 3;
+        controls.maxDistance = 80;
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // --- BRIGHTER LIGHTING ---
+        // Hemisphere: warm sky, cool ground
+        const hemi = new THREE.HemisphereLight(0xffeedd, 0x443322, 1.2);
+        scene.add(hemi);
+
+        // Key (main) light – warm, strong
+        const key = new THREE.DirectionalLight(0xfff0d0, 2.0);
+        key.position.set(8, 12, 10);
+        key.castShadow = true;
+        key.shadow.mapSize.width = 1024;
+        key.shadow.mapSize.height = 1024;
+        scene.add(key);
+
+        // Fill light – cool, from opposite side
+        const fill = new THREE.DirectionalLight(0x88bbff, 0.6);
+        fill.position.set(-8, 4, -6);
+        scene.add(fill);
+
+        // Rim light – edge definition
+        const rim = new THREE.DirectionalLight(0xffffff, 0.5);
+        rim.position.set(-4, 6, -10);
+        scene.add(rim);
+
+        // Ambient – ensures no pure black shadows
+        const ambient = new THREE.AmbientLight(0x888888, 0.5);
+        scene.add(ambient);
+
+        // Optional: soft fill from below
+        const bottom = new THREE.DirectionalLight(0x446688, 0.3);
+        bottom.position.set(0, -6, 4);
+        scene.add(bottom);
+
+        // --- Ground plane (shadow catcher + subtle grid) ---
+        const gridHelper = new THREE.GridHelper(30, 30, 0x88aa88, 0x446644);
+        gridHelper.position.y = -2.5;
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.4;
+        scene.add(gridHelper);
+
+        // A subtle ring to ground the model
+        const ringGeo = new THREE.RingGeometry(2.8, 3.2, 64);
+        const ringMat = new THREE.MeshStandardMaterial({
+            color: 0x446644,
+            transparent: true,
+            opacity: 0.2,
+            side: THREE.DoubleSide,
+            roughness: 0.7,
+            metalness: 0.1,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = -2.45;
+        scene.add(ring);
+
+        // --- Model loading ---
+        let currentModel = null;
+        const loaderGroup = new THREE.Group();
+        scene.add(loaderGroup);
+
+        // Helper to center & scale model
+        function finalizeModel(mesh) {
+            // Compute bounding box
+            const box = new THREE.Box3().setFromObject(mesh);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            // Scale to fit in ~5 unit bounding sphere
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = maxDim > 0.01 ? 5.0 / maxDim : 1.0;
+            mesh.scale.set(scale, scale, scale);
+
+            // Center the model
+            mesh.position.sub(center.multiplyScalar(scale));
+
+            // Add to group
+            loaderGroup.add(mesh);
+            currentModel = mesh;
+
+            // Update status
+            statusDot.className = 'dot loaded';
+            statusText.textContent = 'Loaded ✓';
+
+            // Adjust controls target
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        // --- Load from URL param or fallback ---
+        const params = new URLSearchParams(window.location.search);
+        let modelUrl = params.get('model');
+
+        // If no URL param, try to use a default model (STL, OBJ, etc.)
+        if (!modelUrl) {
+            // You can put a default model here, or leave it to show nothing
+            // For demo, we'll use a built-in geometric shape
+            statusText.textContent = 'No model specified';
+            statusDot.className = 'dot loaded';
+            // Add a demo shape
+            const geo = new THREE.IcosahedronGeometry(2.5, 1);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0x66aaff,
+                roughness: 0.25,
+                metalness: 0.6,
+                envMapIntensity: 1.0,
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            finalizeModel(mesh);
+        } else {
+            statusText.textContent = 'Loading…';
+
+            // Determine loader based on file extension
+            const ext = modelUrl.split('.').pop()?.toLowerCase() || '';
+            let loader;
+
+            switch (ext) {
+                case 'stl':
+                    loader = new STLLoader();
+                    break;
+                case 'obj':
+                    loader = new OBJLoader();
+                    break;
+                case 'glb':
+                case 'gltf':
+                    loader = new GLTFLoader();
+                    break;
+                case 'ply':
+                    loader = new PLYLoader();
+                    break;
+                default:
+                    // Try GLTFLoader as fallback, then STLLoader
+                    loader = new GLTFLoader();
+                    break;
+            }
+
+            // Handle loading
+            const loadPromise = new Promise((resolve, reject) => {
+                if (loader instanceof GLTFLoader) {
+                    loader.load(
+                        modelUrl,
+                        (gltf) => resolve(gltf.scene),
+                        undefined,
+                        reject
+                    );
+                } else if (loader instanceof STLLoader) {
+                    loader.load(
+                        modelUrl,
+                        (geom) => {
+                            const mat = new THREE.MeshStandardMaterial({
+                                color: 0x88ccff,
+                                roughness: 0.3,
+                                metalness: 0.4,
+                                flatShading: false,
+                            });
+                            const mesh = new THREE.Mesh(geom, mat);
+                            mesh.castShadow = true;
+                            mesh.receiveShadow = true;
+                            resolve(mesh);
+                        },
+                        undefined,
+                        reject
+                    );
+                } else if (loader instanceof OBJLoader) {
+                    loader.load(
+                        modelUrl,
+                        (obj) => {
+                            // Apply material to all children
+                            obj.traverse((child) => {
+                                if (child.isMesh) {
+                                    child.material = new THREE.MeshStandardMaterial({
+                                        color: 0x88ccff,
+                                        roughness: 0.3,
+                                        metalness: 0.4,
+                                    });
+                                    child.castShadow = true;
+                                    child.receiveShadow = true;
+                                }
+                            });
+                            resolve(obj);
+                        },
+                        undefined,
+                        reject
+                    );
+                } else if (loader instanceof PLYLoader) {
+                    loader.load(
+                        modelUrl,
+                        (geom) => {
+                            const mat = new THREE.MeshStandardMaterial({
+                                color: 0x88ccff,
+                                roughness: 0.3,
+                                metalness: 0.4,
+                                flatShading: false,
+                            });
+                            const mesh = new THREE.Mesh(geom, mat);
+                            mesh.castShadow = true;
+                            mesh.receiveShadow = true;
+                            resolve(mesh);
+                        },
+                        undefined,
+                        reject
+                    );
+                } else {
+                    reject(new Error('Unsupported file type'));
+                }
+            });
+
+            loadPromise
+                .then((model) => {
+                    // Clear any previous model
+                    while (loaderGroup.children.length > 0) {
+                        loaderGroup.remove(loaderGroup.children[0]);
+                    }
+                    finalizeModel(model);
+                })
+                .catch((err) => {
+                    console.error('Load error:', err);
+                    statusDot.className = 'dot loaded';
+                    statusText.textContent = '⚠️ Failed to load';
+                    // Show fallback shape
+                    const geo = new THREE.SphereGeometry(2.5, 32, 32);
+                    const mat = new THREE.MeshStandardMaterial({
+                        color: 0xff6644,
+                        roughness: 0.4,
+                        metalness: 0.2,
+                    });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    finalizeModel(mesh);
+                });
+        }
+
+        // --- Resize handler ---
+        window.addEventListener('resize', () => {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+
+        // --- Keyboard shortcuts ---
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'r' || e.key === 'R') {
+                controls.autoRotate = !controls.autoRotate;
+                statusText.textContent = controls.autoRotate ? 'Auto-rotate ON' : 'Auto-rotate OFF';
+                setTimeout(() => {
+                    statusText.textContent = currentModel ? 'Loaded ✓' : 'No model';
+                }, 1200);
+            }
+        });
+
+        // --- Animation loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            // Subtle floating animation for the ring
+            ring.rotation.z += 0.001;
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- Log help ---
+        console.log('✦ ZF3D Viewer');
+        console.log('  Press [R] to toggle auto-rotate');
+        console.log('  Use ?model=url to load a model');
+
+        console.log('✨ Lighting: bright & dramatic');
+    </script>
+</body>
+</html>
