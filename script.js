@@ -26,7 +26,7 @@ scene.add(dirLight);
 const grid = new THREE.GridHelper(20, 20, 0x2a2a35, 0x1a1a22);
 scene.add(grid);
 
-let currentMesh = null;
+let currentGroup = null;
 
 const statusEl = document.getElementById('status');
 const vertexCountEl = document.getElementById('vertexCount');
@@ -52,19 +52,19 @@ fileInput.addEventListener('change', (e) => {
 
 async function handleZF3DContainer(file) {
   try {
-    statusEl.textContent = 'Extracting package...';
+    statusEl.textContent = 'Extracting archive...';
     const zip = await JSZip.loadAsync(file);
     
-    // Find all internal file components
     const entries = Object.keys(zip.files);
-    console.log("Archive contents:", entries);
+    console.log("All package entries:", entries);
 
-    const vertexKey = entries.find(name => name.endsWith('.vertex'));
+    // Find ALL vertex files instead of just the first one
+    const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
     const indexKey = entries.find(name => name.endsWith('.index') || name.includes('index'));
     const textureKey = entries.find(name => name.endsWith('.jpg') || name.endsWith('.png'));
 
-    if (!vertexKey) {
-      statusEl.textContent = 'Error: Missing .vertex file!';
+    if (vertexKeys.length === 0) {
+      statusEl.textContent = 'Error: No .vertex files found!';
       return;
     }
 
@@ -77,26 +77,59 @@ async function handleZF3DContainer(file) {
       texture.colorSpace = THREE.SRGBColorSpace;
     }
 
-    statusEl.textContent = 'Parsing buffers...';
-    const vertexBuffer = await zip.files[vertexKey].async('arraybuffer');
-    
-    let indexBuffer = null;
+    statusEl.textContent = `Parsing ${vertexKeys.length} submesh(es)...`;
+
+    // Load global index buffer if it exists
+    let globalIndexBuffer = null;
     if (indexKey) {
-      indexBuffer = await zip.files[indexKey].async('arraybuffer');
+      globalIndexBuffer = await zip.files[indexKey].async('arraybuffer');
     }
 
-    renderIndexedMesh(vertexBuffer, indexBuffer, texture);
+    // Create a parent group to hold all submeshes together
+    if (currentGroup) scene.remove(currentGroup);
+    currentGroup = new THREE.Group();
+
+    let totalVertsCount = 0;
+    let totalFacesCount = 0;
+
+    // Loop through every single .vertex file found in the archive
+    for (const vKey of vertexKeys) {
+      const vertBuffer = await zip.files[vKey].async('arraybuffer');
+      const mesh = buildSubmesh(vertBuffer, globalIndexBuffer, texture);
+      if (mesh) {
+        currentGroup.add(mesh);
+        totalVertsCount += mesh.geometry.attributes.position.count;
+        totalFacesCount += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
+      }
+    }
+
+    scene.add(currentGroup);
+
+    // Center entire group container
+    const box = new THREE.Box3().setFromObject(currentGroup);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 10;
+    
+    currentGroup.position.sub(center);
+    camera.position.set(0, maxDim * 0.5, maxDim * 2);
+    controls.target.set(0, 0, 0);
+
+    statusEl.textContent = 'Loaded successfully';
+    vertexCountEl.textContent = totalVertsCount.toLocaleString();
+    faceCountEl.textContent = Math.floor(totalFacesCount).toLocaleString();
 
   } catch (err) {
     console.error(err);
-    statusEl.textContent = 'Failed to parse package';
+    statusEl.textContent = 'Failed to read package';
   }
 }
 
-function renderIndexedMesh(vertBuffer, idxBuffer, texture) {
+function buildSubmesh(vertBuffer, idxBuffer, texture) {
   const fullFloats = new Float32Array(vertBuffer);
-  const STRIDE = 8; // Standard interleaved layout: Pos(3) + Normal(3) + UV(2)
+  const STRIDE = 8;
   const totalVertices = Math.floor(fullFloats.length / STRIDE);
+  if (totalVertices <= 0) return null;
 
   const positions = new Float32Array(totalVertices * 3);
   const uvs = new Float32Array(totalVertices * 2);
@@ -115,9 +148,7 @@ function renderIndexedMesh(vertBuffer, idxBuffer, texture) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
-  // If an index/face buffer exists, parse it so triangles form correctly
   if (idxBuffer) {
-    // Try reading indices as 16-bit integers (standard for Flash/Flare3D)
     const indices = new Uint16Array(idxBuffer);
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   }
@@ -132,24 +163,15 @@ function renderIndexedMesh(vertBuffer, idxBuffer, texture) {
     wireframe: wireframeToggle.checked
   });
 
-  if (currentMesh) scene.remove(currentMesh);
-
-  currentMesh = new THREE.Mesh(geometry, material);
-  scene.add(currentMesh);
-
-  geometry.computeBoundingSphere();
-  const radius = geometry.boundingSphere.radius || 10;
-  currentMesh.position.sub(geometry.boundingSphere.center);
-  camera.position.set(0, radius * 1.5, radius * 2.5);
-  controls.target.set(0, 0, 0);
-
-  statusEl.textContent = 'Rendered successfully';
-  vertexCountEl.textContent = totalVertices.toLocaleString();
-  faceCountEl.textContent = geometry.index ? Math.floor(geometry.index.count / 3).toLocaleString() : Math.floor(totalVertices / 3).toLocaleString();
+  return new THREE.Mesh(geometry, material);
 }
 
 wireframeToggle.addEventListener('change', (e) => {
-  if (currentMesh) currentMesh.material.wireframe = e.target.checked;
+  if (currentGroup) {
+    currentGroup.traverse((child) => {
+      if (child.isMesh) child.material.wireframe = e.target.checked;
+    });
+  }
 });
 
 autoRotateToggle.addEventListener('change', (e) => {
