@@ -37,7 +37,7 @@ const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
 debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D XML Parser:</b><br/>Ready...';
+debugBox.innerHTML = '<b>ZF3D Bin-Conditional Parser:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -69,51 +69,62 @@ async function parseZF3DContainer(file) {
     const zip = await JSZip.loadAsync(file);
     const entries = Object.keys(zip.files);
 
-    if (!entries.includes('main.xml')) {
-      logDebug('ERROR: main.xml missing from container!');
-      return;
-    }
-
-    const xmlText = await zip.files['main.xml'].async('text');
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-
-    // Find all geometry or mesh nodes in main.xml
-    const submeshes = xmlDoc.getElementsByTagName('submesh');
-    logDebug(`Found ${submeshes.length} submeshes in main.xml`);
-
     if (currentGroup) scene.remove(currentGroup);
     currentGroup = new THREE.Group();
 
     let totalVerts = 0;
     let totalFaces = 0;
 
-    // Fallback if no submesh tags exist: parse all .vertex files directly
-    const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
-    
-    if (submeshes.length === 0) {
-      logDebug('No submesh tags found, loading vertex files directly...');
-      for (const vKey of vertexKeys) {
-        const vBuffer = await zip.files[vKey].async('arraybuffer');
-        const mesh = createMeshFromBuffer(vBuffer);
-        if (mesh) {
-          currentGroup.add(mesh);
-          totalVerts += mesh.geometry.attributes.position.count;
-          totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-        }
+    // Check if the container includes a .bin file
+    const binKey = entries.find(name => name.endsWith('.bin'));
+
+    if (binKey) {
+      logDebug(`Detected .bin file: ${binKey}. Parsing packed binary format...`);
+      const binBuffer = await zip.files[binKey].async('arraybuffer');
+      
+      // If it has a .bin file, handle parsing directly from the combined binary layout
+      const mesh = createMeshFromBuffer(binBuffer);
+      if (mesh) {
+        currentGroup.add(mesh);
+        totalVerts += mesh.geometry.attributes.position.count;
+        totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
       }
     } else {
-      // Parse according to XML definitions
-      for (let i = 0; i < submeshes.length; i++) {
-        const sm = submeshes[i];
-        const vertexFile = sm.getAttribute('vertex');
-        const indexFile = sm.getAttribute('index');
+      logDebug('No .bin file detected. Using standard XML/Vertex mapping...');
+      
+      if (entries.includes('main.xml')) {
+        const xmlText = await zip.files['main.xml'].async('text');
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+        const submeshes = xmlDoc.getElementsByTagName('submesh');
 
-        if (vertexFile && zip.files[vertexFile]) {
-          const vBuffer = await zip.files[vertexFile].async('arraybuffer');
-          let iBuffer = (indexFile && zip.files[indexFile]) ? await zip.files[indexFile].async('arraybuffer') : null;
-          
-          const mesh = createMeshFromBuffer(vBuffer, iBuffer);
+        if (submeshes.length > 0) {
+          for (let i = 0; i < submeshes.length; i++) {
+            const sm = submeshes[i];
+            const vertexFile = sm.getAttribute('vertex');
+            const indexFile = sm.getAttribute('index');
+
+            if (vertexFile && zip.files[vertexFile]) {
+              const vBuffer = await zip.files[vertexFile].async('arraybuffer');
+              let iBuffer = (indexFile && zip.files[indexFile]) ? await zip.files[indexFile].async('arraybuffer') : null;
+              
+              const mesh = createMeshFromBuffer(vBuffer, iBuffer);
+              if (mesh) {
+                currentGroup.add(mesh);
+                totalVerts += mesh.geometry.attributes.position.count;
+                totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback if XML submeshes weren't processed
+      if (currentGroup.children.length === 0) {
+        const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
+        for (const vKey of vertexKeys) {
+          const vBuffer = await zip.files[vKey].async('arraybuffer');
+          const mesh = createMeshFromBuffer(vBuffer);
           if (mesh) {
             currentGroup.add(mesh);
             totalVerts += mesh.geometry.attributes.position.count;
@@ -134,10 +145,10 @@ async function parseZF3DContainer(file) {
     camera.position.set(0, maxDim * 0.5, maxDim * 2);
     controls.target.set(0, 0, 0);
 
-    statusEl.textContent = 'Rendered via XML layout';
+    statusEl.textContent = 'Rendered successfully';
     vertexCountEl.textContent = totalVerts.toLocaleString();
     faceCountEl.textContent = Math.floor(totalFaces).toLocaleString();
-    logDebug('XML Parse complete!');
+    logDebug('Parse complete!');
 
   } catch (err) {
     console.error(err);
@@ -148,7 +159,7 @@ async function parseZF3DContainer(file) {
 
 function createMeshFromBuffer(vBuffer, iBuffer = null) {
   const floats = new Float32Array(vBuffer);
-  const STRIDE_FLOATS = 8; // Standard Flare3D interleaved layout
+  const STRIDE_FLOATS = 8; 
   const totalVertices = Math.floor(floats.length / STRIDE_FLOATS);
   if (totalVertices <= 0) return null;
 
