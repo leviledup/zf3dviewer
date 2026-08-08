@@ -37,7 +37,7 @@ const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
 debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D Universal XML Inspector:</b><br/>Ready...';
+debugBox.innerHTML = '<b>ZF3D XML Structure Inspector:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -68,6 +68,7 @@ async function parseZF3DContainer(file) {
 
     const zip = await JSZip.loadAsync(file);
     const entries = Object.keys(zip.files);
+    logDebug(`Files inside zip: ${entries.join(', ')}`);
 
     if (currentGroup) scene.remove(currentGroup);
     currentGroup = new THREE.Group();
@@ -80,54 +81,40 @@ async function parseZF3DContainer(file) {
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
       
-      // Find all elements and check attributes for filenames
       const allElements = xmlDoc.getElementsByTagName('*');
-      logDebug(`XML total elements: ${allElements.length}`);
-
-      const candidateFiles = new Set();
       for (let i = 0; i < allElements.length; i++) {
         const el = allElements[i];
+        let attrStr = '';
         for (const attr of el.attributes) {
-          if (attr.value.endsWith('.vertex') || attr.value.endsWith('.index')) {
-            candidateFiles.add(attr.value);
-          }
+          attrStr += ` ${attr.name}="${attr.value}"`;
         }
-      }
-
-      logDebug(`Found referenced files in XML: ${Array.from(candidateFiles).join(', ')}`);
-
-      if (candidateFiles.size > 0) {
-        for (const vFile of candidateFiles) {
-          if (vFile.endsWith('.vertex') && zip.files[vFile]) {
-            const vBuffer = await zip.files[vFile].async('arraybuffer');
-            // Look for matching index file
-            const indexCandidate = vFile.replace('.vertex', '.index');
-            let iBuffer = (zip.files[indexCandidate]) ? await zip.files[indexCandidate].async('arraybuffer') : null;
-
-            const mesh = createMeshFromBuffer(vBuffer, iBuffer);
-            if (mesh) {
-              currentGroup.add(mesh);
-              totalVerts += mesh.geometry.attributes.position.count;
-              totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-            }
-          }
-        }
+        logDebug(`Tag <${el.nodeName}>${attrStr}`);
       }
     }
 
-    // If XML attribute matching found nothing, load all .vertex files directly
-    if (currentGroup.children.length === 0) {
-      logDebug('Fallback: Loading all .vertex files...');
-      const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
-      for (const vKey of vertexKeys) {
-        const vBuffer = await zip.files[vKey].async('arraybuffer');
-        const mesh = createMeshFromBuffer(vBuffer);
-        if (mesh) {
-          currentGroup.add(mesh);
-          totalVerts += mesh.geometry.attributes.position.count;
-          totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-        }
+    // Load matching vertex/index files explicitly based on numeric names or standard extensions
+    const vertexKeys = entries.filter(name => name.endsWith('.vertex') || name.endsWith('.bin') && name !== 'main.xml');
+    logDebug(`Candidate geometry files: ${vertexKeys.length}`);
+
+    // If there's only one model file or we want to test them individually via selection/mapping:
+    for (const vKey of vertexKeys) {
+      // Skip small non-vertex control files if needed
+      const vBuffer = await zip.files[vKey].async('arraybuffer');
+      if (vBuffer.byteLength < 100) continue; // Skip header configs
+
+      const mesh = createMeshFromBuffer(vBuffer);
+      if (mesh) {
+        currentGroup.add(mesh);
+        totalVerts += mesh.geometry.attributes.position.count;
+        totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
+        logDebug(`Loaded mesh from: ${vKey}`);
       }
+    }
+
+    if (currentGroup.children.length === 0) {
+      logDebug('ERROR: No valid geometry found.');
+      statusEl.textContent = 'Failed';
+      return;
     }
 
     scene.add(currentGroup);
@@ -153,7 +140,7 @@ async function parseZF3DContainer(file) {
   }
 }
 
-function createMeshFromBuffer(vBuffer, iBuffer = null) {
+function createMeshFromBuffer(vBuffer) {
   const remainder = vBuffer.byteLength % 4;
   const safeBuffer = remainder !== 0 ? vBuffer.slice(0, vBuffer.byteLength - remainder) : vBuffer;
   
@@ -178,14 +165,6 @@ function createMeshFromBuffer(vBuffer, iBuffer = null) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-
-  if (iBuffer) {
-    const idxRemainder = iBuffer.byteLength % 2;
-    const safeIdxBuffer = idxRemainder !== 0 ? iBuffer.slice(0, iBuffer.byteLength - idxRemainder) : iBuffer;
-    const indices = new Uint16Array(safeIdxBuffer);
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  }
-
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
