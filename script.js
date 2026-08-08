@@ -37,7 +37,7 @@ const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
 debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D XML-Bin Parser:</b><br/>Ready...';
+debugBox.innerHTML = '<b>ZF3D Universal XML Inspector:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -75,26 +75,35 @@ async function parseZF3DContainer(file) {
     let totalVerts = 0;
     let totalFaces = 0;
 
-    // Read main.xml to find geometry bindings for bunny models
     if (entries.includes('main.xml')) {
       const xmlText = await zip.files['main.xml'].async('text');
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
       
-      // Look for submesh or geometry nodes
-      const submeshes = xmlDoc.getElementsByTagName('submesh');
-      logDebug(`Found ${submeshes.length} submeshes in XML`);
+      // Find all elements and check attributes for filenames
+      const allElements = xmlDoc.getElementsByTagName('*');
+      logDebug(`XML total elements: ${allElements.length}`);
 
-      if (submeshes.length > 0) {
-        for (let i = 0; i < submeshes.length; i++) {
-          const sm = submeshes[i];
-          const vertexFile = sm.getAttribute('vertex');
-          const indexFile = sm.getAttribute('index');
+      const candidateFiles = new Set();
+      for (let i = 0; i < allElements.length; i++) {
+        const el = allElements[i];
+        for (const attr of el.attributes) {
+          if (attr.value.endsWith('.vertex') || attr.value.endsWith('.index')) {
+            candidateFiles.add(attr.value);
+          }
+        }
+      }
 
-          if (vertexFile && zip.files[vertexFile]) {
-            const vBuffer = await zip.files[vertexFile].async('arraybuffer');
-            let iBuffer = (indexFile && zip.files[indexFile]) ? await zip.files[indexFile].async('arraybuffer') : null;
-            
+      logDebug(`Found referenced files in XML: ${Array.from(candidateFiles).join(', ')}`);
+
+      if (candidateFiles.size > 0) {
+        for (const vFile of candidateFiles) {
+          if (vFile.endsWith('.vertex') && zip.files[vFile]) {
+            const vBuffer = await zip.files[vFile].async('arraybuffer');
+            // Look for matching index file
+            const indexCandidate = vFile.replace('.vertex', '.index');
+            let iBuffer = (zip.files[indexCandidate]) ? await zip.files[indexCandidate].async('arraybuffer') : null;
+
             const mesh = createMeshFromBuffer(vBuffer, iBuffer);
             if (mesh) {
               currentGroup.add(mesh);
@@ -106,7 +115,7 @@ async function parseZF3DContainer(file) {
       }
     }
 
-    // Fallback: If XML didn't add meshes, load all .vertex files directly
+    // If XML attribute matching found nothing, load all .vertex files directly
     if (currentGroup.children.length === 0) {
       logDebug('Fallback: Loading all .vertex files...');
       const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
@@ -119,12 +128,6 @@ async function parseZF3DContainer(file) {
           totalFaces += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
         }
       }
-    }
-
-    if (currentGroup.children.length === 0) {
-      logDebug('ERROR: No valid meshes could be constructed!');
-      statusEl.textContent = 'Failed to parse geometry';
-      return;
     }
 
     scene.add(currentGroup);
