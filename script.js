@@ -3,9 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const container = document.getElementById('viewport');
 
-// Fallback to window dimensions if container hasn't laid out yet to prevent 0x0 canvas creation
+// Force initial fallback dimensions to avoid 0x0 canvas creation bug
 const width = container.clientWidth || window.innerWidth;
-const height = container.clientHeight || 350;
+const height = container.clientHeight || 400;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0f0f12);
@@ -13,14 +13,14 @@ scene.background = new THREE.Color(0x0f0f12);
 const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
 camera.position.set(0, 5, 10);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(width, height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-// Ensure canvas explicitly fills the viewport container element
+// Fix explicit canvas style rules so the browser actually paints it
+renderer.domElement.style.display = 'block';
 renderer.domElement.style.width = '100%';
 renderer.domElement.style.height = '100%';
-renderer.domElement.style.display = 'block';
 container.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -47,8 +47,8 @@ const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
-debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D Corrected Parser:</b><br/>Ready...';
+debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:300px; max-height:140px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:6px; overflow-y:auto; border-radius:4px; z-index:99;';
+debugBox.innerHTML = '<b>ZF3D Log:</b> Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -78,7 +78,7 @@ if (fileInput) {
 
 async function parseZF3DContainer(file) {
   try {
-    statusEl.textContent = 'Parsing container...';
+    statusEl.textContent = 'Parsing...';
     logDebug(`Opening: ${file.name}`);
 
     const zip = await JSZip.loadAsync(file);
@@ -104,10 +104,10 @@ async function parseZF3DContainer(file) {
       if (mesh) {
         currentGroup.add(mesh);
         totalVerts += mesh.geometry.attributes.position.count;
-        logDebug('Successfully built mesh from 34.vertex');
+        logDebug('Loaded 34.vertex successfully');
       }
     } else {
-      logDebug('ERROR: 34.vertex not found in archive!');
+      logDebug('ERROR: 34.vertex missing!');
     }
 
     if (currentGroup.children.length === 0) {
@@ -172,9 +172,7 @@ function createMeshFromVertexFile(vBuffer, texture = null) {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
   const indices = [];
-  for (let i = 0; i < totalVertices; i++) {
-    indices.push(i);
-  }
+  for (let i = 0; i < totalVertices; i++) indices.push(i);
   geometry.setIndex(indices);
 
   const material = new THREE.MeshStandardMaterial({
@@ -213,7 +211,7 @@ if (resetCamBtn) {
 
 window.addEventListener('resize', () => {
   const w = container.clientWidth || window.innerWidth;
-  const h = container.clientHeight || 350;
+  const h = container.clientHeight || 400;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
