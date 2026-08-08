@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// Setup WebGL Renderer, Scene, and Camera
 const container = document.getElementById('viewport');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0f0f12);
@@ -17,7 +16,6 @@ container.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-// Lighting & Grid Helper
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambientLight);
 
@@ -30,7 +28,6 @@ scene.add(grid);
 
 let currentMesh = null;
 
-// UI Elements
 const statusEl = document.getElementById('status');
 const vertexCountEl = document.getElementById('vertexCount');
 const faceCountEl = document.getElementById('faceCount');
@@ -38,7 +35,6 @@ const wireframeToggle = document.getElementById('wireframeToggle');
 const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 
-// File Upload Handlers
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 
@@ -46,107 +42,81 @@ const fileInput = document.getElementById('fileInput');
   dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
 });
 
-dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', (e) => {
-  dropZone.classList.remove('dragover');
-  const files = e.dataTransfer.files;
-  if (files.length) handleZF3DContainer(files[0]);
+  if (e.dataTransfer.files.length) handleZF3DContainer(e.dataTransfer.files[0]);
 });
 
 fileInput.addEventListener('change', (e) => {
   if (e.target.files.length) handleZF3DContainer(e.target.files[0]);
 });
 
-// Extract .zf3d archive and parse using XML metadata
 async function handleZF3DContainer(file) {
   try {
-    statusEl.textContent = 'Extracting archive...';
+    statusEl.textContent = 'Reading archive...';
     const zip = await JSZip.loadAsync(file);
     
-    // 1. Find files inside the container
-    const xmlEntry = Object.keys(zip.files).find(name => name.endsWith('.xml'));
-    const vertexEntry = Object.keys(zip.files).find(name => name.endsWith('.vertex'));
-    const textureEntry = Object.keys(zip.files).find(name => name.endsWith('.jpg') || name.endsWith('.png'));
+    // Debug: List all files inside the .zf3d container in console
+    console.log("Files inside ZF3D container:", Object.keys(zip.files));
 
-    if (!vertexEntry) {
+    // Explicitly find files and avoid mixing them up
+    const vertexKey = Object.keys(zip.files).find(name => name.endsWith('.vertex'));
+    const xmlKey = Object.keys(zip.files).find(name => name.endsWith('.xml'));
+    const textureKey = Object.keys(zip.files).find(name => name.endsWith('.jpg') || name.endsWith('.png'));
+    const animationKey = Object.keys(zip.files).find(name => name.endsWith('.animation'));
+
+    if (animationKey) console.log("Found animation file (skipping vertex parser mixup):", animationKey);
+
+    if (!vertexKey) {
       statusEl.textContent = 'Error: No .vertex file found!';
       return;
     }
 
-    // 2. Parse XML layout if available
-    let vertexFormat = { stride: 8, posOffset: 0, uvOffset: 6 }; // fallback default
-    if (xmlEntry) {
-      const xmlText = await zip.files[xmlEntry].async('text');
-      vertexFormat = parseFlare3DXML(xmlText);
+    // Read XML metadata if present to check layout
+    if (xmlKey) {
+      const xmlText = await zip.files[xmlKey].async('text');
+      console.log("Model XML Content:", xmlText);
     }
 
-    // 3. Load Texture (.jpg) if available
-    let loadedTexture = null;
-    if (textureEntry) {
-      const texBlob = await zip.files[textureEntry].async('blob');
+    // Load Texture
+    let texture = null;
+    if (textureKey) {
+      const texBlob = await zip.files[textureKey].async('blob');
       const texURL = URL.createObjectURL(texBlob);
-      loadedTexture = new THREE.TextureLoader().load(texURL);
-      loadedTexture.colorSpace = THREE.SRGBColorSpace;
+      texture = new THREE.TextureLoader().load(texURL);
+      texture.colorSpace = THREE.SRGBColorSpace;
     }
 
-    // 4. Load Vertex Binary Buffer
-    statusEl.textContent = 'Parsing vertex buffers...';
-    const vertexBuffer = await zip.files[vertexEntry].async('arraybuffer');
+    // Load Pure Vertex Buffer bytes
+    statusEl.textContent = 'Parsing .vertex data...';
+    const vertexBuffer = await zip.files[vertexKey].async('arraybuffer');
     
-    renderStructuredMesh(vertexBuffer, vertexFormat, loadedTexture);
+    renderMeshSafely(vertexBuffer, texture);
 
   } catch (err) {
     console.error(err);
-    statusEl.textContent = 'Failed to parse .zf3d package';
+    statusEl.textContent = 'Extraction failed';
   }
 }
 
-// Simple XML inspector to detect Flare3D vertex layout attributes
-function parseFlare3DXML(xmlText) {
-  // Flare3D XML files typically define vertex layout blocks like vertexFormat="position3,normal3,uv2"
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-  
-  // Default values
-  let stride = 8;
-  let posOffset = 0;
-  let uvOffset = 6;
-
-  // Look for format descriptions in the XML tree elements
-  const subMeshes = xmlDoc.getElementsByTagName('subMesh');
-  if (subMeshes.length > 0) {
-    // You can inspect console logs to see your model's exact XML structure structure if needed
-    console.log("Found model submeshes in XML");
-  }
-
-  return { stride, posOffset, uvOffset };
-}
-
-// Build mesh using precise offsets
-function renderBinaryMesh(buffer) {
-  renderStructuredMesh(buffer, { stride: 8, posOffset: 0, uvOffset: 6 }, null);
-}
-
-function renderStructuredMesh(buffer, format, texture) {
+function renderMeshSafely(buffer, texture) {
   const fullFloats = new Float32Array(buffer);
-  const STRIDE = format.stride;
+  
+  // Let's test standard interleaved stride of 8 (Pos3, Normal3, UV2)
+  const STRIDE = 8;
   const totalVertices = Math.floor(fullFloats.length / STRIDE);
   
   const positions = new Float32Array(totalVertices * 3);
   const uvs = new Float32Array(totalVertices * 2);
 
   for (let i = 0; i < totalVertices; i++) {
-    const srcOffset = i * STRIDE;
+    const base = i * STRIDE;
     
-    // Extract Position
-    positions[i * 3]     = fullFloats[srcOffset + format.posOffset + 0];
-    positions[i * 3 + 1] = fullFloats[srcOffset + format.posOffset + 1];
-    positions[i * 3 + 2] = fullFloats[srcOffset + format.posOffset + 2];
+    positions[i * 3]     = fullFloats[base + 0];
+    positions[i * 3 + 1] = fullFloats[base + 1];
+    positions[i * 3 + 2] = fullFloats[base + 2];
 
-    // Extract UVs
-    uvs[i * 2]     = fullFloats[srcOffset + format.uvOffset + 0];
-    uvs[i * 2 + 1] = fullFloats[srcOffset + format.uvOffset + 1];
+    uvs[i * 2]     = fullFloats[base + 6];
+    uvs[i * 2 + 1] = fullFloats[base + 7];
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -157,8 +127,7 @@ function renderStructuredMesh(buffer, format, texture) {
   const material = new THREE.MeshStandardMaterial({
     color: texture ? 0xffffff : 0x6366f1,
     map: texture,
-    roughness: 0.5,
-    metalness: 0.1,
+    roughness: 0.4,
     side: THREE.DoubleSide,
     wireframe: wireframeToggle.checked
   });
@@ -168,20 +137,17 @@ function renderStructuredMesh(buffer, format, texture) {
   currentMesh = new THREE.Mesh(geometry, material);
   scene.add(currentMesh);
 
-  // Auto Recenter Camera
   geometry.computeBoundingSphere();
   const radius = geometry.boundingSphere.radius || 10;
   currentMesh.position.sub(geometry.boundingSphere.center);
   camera.position.set(0, radius * 1.5, radius * 2.5);
   controls.target.set(0, 0, 0);
 
-  // Update UI
-  statusEl.textContent = 'Loaded successfully with texture!';
+  statusEl.textContent = 'Rendered successfully';
   vertexCountEl.textContent = totalVertices.toLocaleString();
   faceCountEl.textContent = Math.floor(totalVertices / 3).toLocaleString();
 }
 
-// UI Event Listeners
 wireframeToggle.addEventListener('change', (e) => {
   if (currentMesh) currentMesh.material.wireframe = e.target.checked;
 });
