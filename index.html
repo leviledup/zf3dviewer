@@ -1,1 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZF3D Model Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- CDNs for JSZip, Three.js, and OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar Controls & Info -->
+    <aside class="sidebar">
+      <h2>ZF3D Viewer</h2>
+      
+      <div class="drop-zone" id="dropZone">
+        <p>Drag & drop a <strong>.zf3d</strong> or raw binary files here</p>
+        <span>or</span>
+        <label for="fileInput" class="btn">Browse Files</label>
+        <input type="file" id="fileInput" accept=".zf3d,.vertex,.animation,.zip" multiple hidden>
+      </div>
+
+      <div class="info-panel" id="infoPanel">
+        <h3>File Info</h3>
+        <ul>
+          <li>Status: <span id="status">Idle</span></li>
+          <li>Vertices: <span id="vertexCount">0</span></li>
+          <li>Faces: <span id="faceCount">0</span></li>
+          <li>Bones: <span id="boneCount">0</span></li>
+        </ul>
+      </div>
+
+      <div class="controls-panel">
+        <label>
+          <input type="checkbox" id="wireframeToggle"> Wireframe
+        </label>
+        <label>
+          <input type="checkbox" id="autoRotateToggle"> Auto Rotate
+        </label>
+        <button id="resetCamBtn" class="btn secondary">Reset Camera</button>
+      </div>
+    </aside>
+
+    <!-- WebGL Canvas Container -->
+    <main class="viewport" id="viewport"></main>
+  </div>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
 
