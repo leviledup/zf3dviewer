@@ -2,403 +2,1126 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZF3D Viewer — fixed</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZF3D Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-:root{--ink:#0a0c0a;--panel:#12140f;--line:#2a2e22;--amber:#ffb200;--text:#d9d6c8;--dim:#7a7a6c;--mono:'SFMono-Regular',Consolas,'Liberation Mono',monospace}
-*{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--ink);color:var(--text);font-family:var(--mono)}
-#viewport{position:fixed;inset:0}#viewport canvas{display:block}
-#topbar{position:fixed;z-index:10;left:0;right:0;top:0;padding:14px 18px;display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;background:linear-gradient(#0a0c0aee,#0a0c0a00);border-bottom:1px solid var(--line);pointer-events:none}
-.brand,.actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;pointer-events:auto}
-.mark{color:var(--amber);font-weight:700;letter-spacing:.12em;font-size:13px}.sub{color:var(--dim);font-size:11px}
-button{font:11px var(--mono);letter-spacing:.05em;color:var(--dim);background:var(--panel);border:1px solid var(--line);padding:8px 11px;cursor:pointer}
-button:hover{color:var(--text);border-color:#8a6300}button.active{color:var(--amber);border-color:var(--amber);background:#ffb2001f}button:disabled{opacity:.35;cursor:default}
-#hud{display:none;position:fixed;z-index:10;left:18px;bottom:18px;min-width:245px;padding:12px 14px;background:#0a0c0abc;border:1px solid var(--line);font-size:11px;line-height:1.65}
-#hud.show{display:block}.filename{color:var(--amber);font-weight:700;margin-bottom:7px;word-break:break-all}.row{display:flex;justify-content:space-between;gap:18px}.k{color:var(--dim)}.v{text-align:right}
-#drop{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.frame{width:min(600px,88vw);padding:42px;border:1px solid var(--line);background:#12140f8c;text-align:center}.glyph{color:#8a6300;font-size:11px;letter-spacing:.25em;margin-bottom:16px}
-h1{font-size:16px;margin:0 0 10px}p{font-size:11px;color:var(--dim);line-height:1.7;margin:0 0 20px}.cta{display:inline-block;border:1px solid #8a6300;color:var(--amber);padding:9px 16px;font-size:11px}
-#status{display:none;position:fixed;z-index:30;left:50%;top:50%;transform:translate(-50%,-50%);color:var(--amber);font-size:12px}
-#status.show{display:block}#error{display:none;position:fixed;z-index:40;left:50%;bottom:24px;transform:translateX(-50%);max-width:88vw;padding:10px 15px;background:#1e0a0ae8;border:1px solid #7a2c2c;color:#ff8f8f;font-size:11px}
-#fileInput{display:none}
+  :root{
+    --ink:#0a0c0a;
+    --panel:#12140f;
+    --panel-line:#2a2e22;
+    --amber:#ffb200;
+    --amber-dim:#8a6300;
+    --amber-faint:rgba(255,178,0,0.12);
+    --text:#d9d6c8;
+    --text-dim:#7a7a6c;
+    --mono:'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--ink);
+    font-family:var(--mono);
+    color:var(--text);
+    overflow:hidden;
+  }
+  #viewport{
+    position:fixed; inset:0;
+  }
+  #viewport canvas{ display:block; }
+
+  #scanlines{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:repeating-linear-gradient(
+      to bottom,
+      rgba(255,178,0,0.025) 0px,
+      rgba(255,178,0,0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode:overlay;
+  }
+  #vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.65);
+  }
+
+  #topbar{
+    position:fixed; top:0; left:0; right:0; z-index:10;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px;
+    border-bottom:1px solid var(--panel-line);
+    background:linear-gradient(to bottom, rgba(10,12,10,0.92), rgba(10,12,10,0.0));
+    pointer-events:none;
+    flex-wrap:wrap; gap:8px;
+  }
+  #topbar .brand{
+    display:flex; align-items:baseline; gap:10px;
+    pointer-events:auto;
+  }
+  #topbar .brand .mark{
+    color:var(--amber); font-weight:700; letter-spacing:0.12em; font-size:13px;
+  }
+  #topbar .brand .sub{
+    color:var(--text-dim); font-size:11px; letter-spacing:0.06em;
+  }
+  #topbar .actions{
+    display:flex; gap:8px; pointer-events:auto; flex-wrap:wrap;
+  }
+  button.chip{
+    font-family:var(--mono);
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    color:var(--text-dim);
+    font-size:11px;
+    letter-spacing:0.05em;
+    padding:7px 11px;
+    cursor:pointer;
+    transition:border-color 0.15s, color 0.15s, opacity 0.15s;
+  }
+  button.chip:hover{
+    border-color:var(--amber-dim);
+    color:var(--text);
+  }
+  button.chip.active{
+    border-color:var(--amber);
+    color:var(--amber);
+    background:var(--amber-faint);
+  }
+  button.chip:disabled{
+    opacity:0.35;
+    cursor:default;
+  }
+  button.chip:disabled:hover{
+    border-color:var(--panel-line);
+    color:var(--text-dim);
+  }
+
+  #hud{
+    position:fixed; left:18px; bottom:18px; z-index:10;
+    font-size:11px; line-height:1.65;
+    color:var(--text-dim);
+    background:rgba(10,12,10,0.72);
+    border:1px solid var(--panel-line);
+    padding:12px 14px;
+    min-width:230px;
+    display:none;
+  }
+  #hud.visible{ display:block; }
+  #hud .row{ display:flex; justify-content:space-between; gap:16px; }
+  #hud .row .k{ color:var(--text-dim); }
+  #hud .row .v{ color:var(--text); text-align:right; }
+  #hud .filename{
+    color:var(--amber); font-weight:700; font-size:12px;
+    margin-bottom:8px; word-break:break-all;
+    letter-spacing:0.02em;
+  }
+  #hud hr{ border:none; border-top:1px solid var(--panel-line); margin:8px 0; }
+
+  #dropzone{
+    position:fixed; inset:0; z-index:20;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  #dropzone .frame{
+    width:min(560px, 86vw);
+    border:1px solid var(--panel-line);
+    background:rgba(18,20,15,0.55);
+    padding:48px 40px;
+    text-align:center;
+    transition:border-color 0.2s, background 0.2s;
+  }
+  #dropzone.drag .frame{
+    border-color:var(--amber);
+    background:var(--amber-faint);
+  }
+  #dropzone .glyph{
+    font-size:11px; color:var(--amber-dim); letter-spacing:0.3em;
+    margin-bottom:18px;
+  }
+  #dropzone h1{
+    font-size:16px; font-weight:700; color:var(--text);
+    margin:0 0 10px; letter-spacing:0.02em;
+  }
+  #dropzone p{
+    font-size:12px; color:var(--text-dim); margin:0 0 22px; line-height:1.6;
+  }
+  #dropzone .cta{
+    display:inline-block;
+    border:1px solid var(--amber-dim);
+    color:var(--amber);
+    padding:9px 18px;
+    font-size:11px;
+    letter-spacing:0.08em;
+  }
+  #dropzone .cursor{
+    display:inline-block; width:7px; height:12px; background:var(--amber);
+    margin-left:2px; vertical-align:-2px;
+    animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  #status{
+    position:fixed; z-index:25; left:50%; top:50%; transform:translate(-50%,-50%);
+    color:var(--amber); font-size:12px; letter-spacing:0.08em; display:none;
+  }
+  #status.visible{ display:block; }
+
+  #errbox{
+    position:fixed; z-index:30; left:50%; bottom:26px; transform:translateX(-50%);
+    border:1px solid #7a2c2c; background:rgba(30,10,10,0.9); color:#ff8f8f;
+    font-size:11px; padding:10px 16px; display:none; max-width:80vw;
+  }
+  #errbox.visible{ display:block; }
+
+  input[type=file]{ display:none; }
+
+  @media (max-width:600px){
+    #hud{ min-width:180px; font-size:10px; }
+    #dropzone .frame{ padding:32px 22px; }
+  }
 </style>
 </head>
 <body>
+
 <div id="viewport"></div>
+<div id="scanlines"></div>
+<div id="vignette"></div>
+
 <div id="topbar">
-  <div class="brand"><span class="mark">ZF3D</span><span class="sub">Flare3D model viewer</span></div>
+  <div class="brand">
+    <span class="mark">ZF3D</span>
+    <span class="sub">Flare3D model viewer</span>
+  </div>
   <div class="actions">
-    <button id="open">OPEN FILE(S)</button>
-    <button id="wire">WIREFRAME</button>
-    <button id="spin">AUTOROTATE</button>
-    <button id="gridBtn" class="active">GRID</button>
-    <button id="anim" disabled>▶ PLAY ANIM</button>
+    <button class="chip" id="btnLoad">OPEN FILE</button>
+    <button class="chip" id="btnWire">WIREFRAME</button>
+    <button class="chip" id="btnSpin">AUTOROTATE</button>
+    <button class="chip active" id="btnGrid">GRID</button>
+    <button class="chip" id="btnAnim" disabled>▶ PLAY ANIM</button>
   </div>
 </div>
+
 <div id="hud">
-  <div class="filename" id="name">—</div>
+  <div class="filename" id="hudName">—</div>
   <div class="row"><span class="k">format</span><span class="v">Flare3D (.zf3d)</span></div>
-  <div class="row"><span class="k">nodes</span><span class="v" id="nodes">0</span></div>
-  <div class="row"><span class="k">surfaces</span><span class="v" id="surfaces">0</span></div>
-  <div class="row"><span class="k">triangles</span><span class="v" id="tris">0</span></div>
-  <div class="row"><span class="k">materials</span><span class="v" id="mats">0</span></div>
-  <hr style="border:0;border-top:1px solid var(--line);margin:8px 0">
-  <div class="row"><span class="k">bones</span><span class="v" id="bones">0</span></div>
-  <div class="row"><span class="k">skinned meshes</span><span class="v" id="skinned">0</span></div>
-  <div class="row"><span class="k">animation</span><span class="v" id="animInfo">none</span></div>
+  <div class="row"><span class="k">nodes</span><span class="v" id="hudNodes">0</span></div>
+  <div class="row"><span class="k">surfaces</span><span class="v" id="hudSurfaces">0</span></div>
+  <div class="row"><span class="k">triangles</span><span class="v" id="hudTris">0</span></div>
+  <div class="row"><span class="k">materials</span><span class="v" id="hudMats">0</span></div>
+  <hr>
+  <div class="row"><span class="k">bones</span><span class="v" id="hudBones">0</span></div>
+  <div class="row"><span class="k">skinned meshes</span><span class="v" id="hudSkinned">0</span></div>
+  <div class="row"><span class="k">animation</span><span class="v" id="hudAnim">none</span></div>
 </div>
-<div id="drop"><div class="frame">
-  <div class="glyph">ZF3D / FLARE3D</div>
-  <h1>Drop one or more .zf3d files</h1>
-  <p>For models with an external skeleton, select the model and its skeleton together.<br>Animations are played from the original per-frame matrices.</p>
-  <span class="cta">SELECT FILES</span>
-</div></div>
-<div id="status">PARSING…</div><div id="error"></div>
-<input id="fileInput" type="file" accept=".zf3d,application/zip,application/x-zip-compressed,application/octet-stream" multiple>
+
+<div id="dropzone">
+  <div class="frame">
+    <div class="glyph">FIRST EVER ZF3D FILE VIEWER</div>
+    <h1>Drop a .zf3d file to inspect it<span class="cursor"></span></h1>
+    <p>Flare3D model viewing straight from your browser!</p>
+    <div class="cta">SELECT FILE</div>
+  </div>
+</div>
+
+<div id="status">PARSING…</div>
+<div id="errbox"></div>
+<input type="file" id="fileInput" accept=".zf3d,application/zip,application/x-zip-compressed,application/octet-stream">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
 <script>
-(() => {
-'use strict';
-if(!window.THREE || !window.JSZip){ document.body.innerHTML='<div style="padding:30px;color:#ff8f8f;background:#0a0c0a;font:13px monospace">Could not load Three.js/JSZip.</div>'; return; }
+(function(){
 
-const $=id=>document.getElementById(id);
-const viewport=$('viewport'), drop=$('drop'), input=$('fileInput'), status=$('status'), error=$('error');
-const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0a0c0a); scene.fog=new THREE.Fog(0x0a0c0a,30,140);
-const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.001,5000);
-const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight); renderer.outputEncoding=THREE.sRGBEncoding; viewport.appendChild(renderer.domElement);
-
-const hemi=new THREE.HemisphereLight(0xfff2d0,0x1a1408,.9); scene.add(hemi);
-const key=new THREE.DirectionalLight(0xffe3ad,1.15); key.position.set(5,9,6); scene.add(key);
-const rim=new THREE.DirectionalLight(0x6fa8ff,.35); rim.position.set(-6,3,-4); scene.add(rim);
-scene.add(new THREE.AmbientLight(0x404040,.4));
-const grid=new THREE.GridHelper(40,40,0x8a6300,0x22251a); grid.material.transparent=true; grid.material.opacity=.35; scene.add(grid);
-
-class OrbitLite {
-  constructor(camera,el){
-    this.camera=camera;this.el=el;this.target=new THREE.Vector3();this.damping=.08;
-    this.minDistance=.1;this.maxDistance=500;this.rotateSpeed=1;this.panSpeed=1;
-    this.sphericalDelta=new THREE.Spherical();this.scale=1;this.points=new Map();this.mode=null;this.pinch=0;
-    el.style.touchAction='none';
-    el.addEventListener('pointerdown',e=>{el.setPointerCapture(e.pointerId);this.points.set(e.pointerId,{x:e.clientX,y:e.clientY});
-      this.mode=this.points.size===1?(e.button===2||e.shiftKey?'pan':'rotate'):'pinch';
-      if(this.points.size===2){const p=[...this.points.values()];this.pinch=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);}
-    });
-    el.addEventListener('pointermove',e=>{
-      if(!this.points.has(e.pointerId))return;const old=this.points.get(e.pointerId);const dx=e.clientX-old.x,dy=e.clientY-old.y;
-      this.points.set(e.pointerId,{x:e.clientX,y:e.clientY});
-      if(this.mode==='rotate'&&this.points.size===1){this.sphericalDelta.theta-=2*Math.PI*dx/el.clientHeight;this.sphericalDelta.phi-=2*Math.PI*dy/el.clientHeight;}
-      else if(this.mode==='pan'&&this.points.size===1)this.pan(dx,dy);
-      else if(this.mode==='pinch'&&this.points.size===2){const p=[...this.points.values()];const d=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);if(this.pinch>0)this.scale/=d/this.pinch;this.pinch=d;}
-    });
-    const up=e=>{this.points.delete(e.pointerId);if(!this.points.size)this.mode=null};el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);
-    el.addEventListener('wheel',e=>{e.preventDefault();this.scale*=e.deltaY<0?.95:1/.95},{passive:false});el.addEventListener('contextmenu',e=>e.preventDefault());
+  if (typeof THREE === 'undefined' || typeof JSZip === 'undefined'){
+    document.body.innerHTML =
+      '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'background:#0a0c0a;color:#ff8f8f;font-family:monospace;font-size:13px;text-align:center;padding:20px;">' +
+      'Could not load required scripts (three.js / JSZip) from cdnjs.cloudflare.com.<br>' +
+      'Check your network connection or content-blocker and reload the page.</div>';
+    return;
   }
-  pan(dx,dy){const off=new THREE.Vector3().copy(this.camera.position).sub(this.target),d=off.length()*Math.tan(this.camera.fov*Math.PI/360);
-    const x=new THREE.Vector3().setFromMatrixColumn(this.camera.matrix,0),y=new THREE.Vector3().setFromMatrixColumn(this.camera.matrix,1);
-    const p=new THREE.Vector3().addScaledVector(x,-dx*d*2/this.el.clientHeight).addScaledVector(y,dy*d*2/this.el.clientHeight);
-    this.target.add(p);this.camera.position.add(p);
+
+  window.addEventListener('error', (e) => {
+    console.error('Uncaught error:', e.error || e.message);
+  });
+
+  // ---------- minimal dependency-free orbit controls ----------
+  function OrbitLiteControls(camera, domElement){
+    this.camera = camera;
+    this.domElement = domElement;
+    this.target = new THREE.Vector3();
+    this.enableDamping = true;
+    this.dampingFactor = 0.08;
+    this.minDistance = 0.01;
+    this.maxDistance = 1e6;
+    this.rotateSpeed = 1;
+    this.panSpeed = 1;
+
+    const sphericalDelta = new THREE.Spherical();
+    let scale = 1;
+    const pointers = new Map();
+    let mode = null;
+    let pinchStartDist = 0;
+
+    domElement.style.touchAction = 'none';
+
+    const onPointerDown = (e) => {
+      domElement.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1){
+        mode = (e.button === 2 || e.shiftKey) ? 'pan' : 'rotate';
+      } else if (pointers.size === 2){
+        mode = 'pinch';
+        const pts = Array.from(pointers.values());
+        pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      }
+    };
+
+    const onPointerMove = (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      const prev = pointers.get(e.pointerId);
+      const dx = e.clientX - prev.x;
+      const dy = e.clientY - prev.y;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (mode === 'rotate' && pointers.size === 1){
+        sphericalDelta.theta -= 2 * Math.PI * dx / domElement.clientHeight * this.rotateSpeed;
+        sphericalDelta.phi -= 2 * Math.PI * dy / domElement.clientHeight * this.rotateSpeed;
+      } else if (mode === 'pan' && pointers.size === 1){
+        pan(dx, dy);
+      } else if (mode === 'pinch' && pointers.size === 2){
+        const pts = Array.from(pointers.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (pinchStartDist > 0) scale /= (dist / pinchStartDist);
+        pinchStartDist = dist;
+      }
+    };
+
+    const onPointerUp = (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size === 0) mode = null;
+    };
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const zoomFactor = 0.95;
+      scale *= (e.deltaY < 0) ? zoomFactor : (1 / zoomFactor);
+    };
+
+    const pan = (dx, dy) => {
+      const offset = new THREE.Vector3().copy(camera.position).sub(this.target);
+      const targetDistance = offset.length() * Math.tan((camera.fov / 2) * Math.PI / 180);
+      const panX = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      const panY = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      const panOffset = new THREE.Vector3();
+      panOffset.addScaledVector(panX, -dx * targetDistance * 2 / domElement.clientHeight * this.panSpeed);
+      panOffset.addScaledVector(panY, dy * targetDistance * 2 / domElement.clientHeight * this.panSpeed);
+      this.target.add(panOffset);
+      camera.position.add(panOffset);
+    };
+
+    domElement.addEventListener('pointerdown', onPointerDown);
+    domElement.addEventListener('pointermove', onPointerMove);
+    domElement.addEventListener('pointerup', onPointerUp);
+    domElement.addEventListener('pointercancel', onPointerUp);
+    domElement.addEventListener('wheel', onWheel, { passive: false });
+    domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    this.update = () => {
+      const offset = new THREE.Vector3().copy(camera.position).sub(this.target);
+      const spherical = new THREE.Spherical().setFromVector3(offset);
+      spherical.theta += sphericalDelta.theta;
+      spherical.phi += sphericalDelta.phi;
+      spherical.phi = Math.max(0.001, Math.min(Math.PI - 0.001, spherical.phi));
+      spherical.radius = Math.max(this.minDistance, Math.min(this.maxDistance, spherical.radius * scale));
+      offset.setFromSpherical(spherical);
+      camera.position.copy(this.target).add(offset);
+      camera.lookAt(this.target);
+
+      if (this.enableDamping){
+        sphericalDelta.theta *= (1 - this.dampingFactor);
+        sphericalDelta.phi *= (1 - this.dampingFactor);
+        scale = 1 + (scale - 1) * (1 - this.dampingFactor);
+      } else {
+        sphericalDelta.theta = 0;
+        sphericalDelta.phi = 0;
+        scale = 1;
+      }
+    };
   }
-  update(){const off=new THREE.Vector3().copy(this.camera.position).sub(this.target),s=new THREE.Spherical().setFromVector3(off);
-    s.theta+=this.sphericalDelta.theta;s.phi=Math.max(.001,Math.min(Math.PI-.001,s.phi));s.radius=Math.max(this.minDistance,Math.min(this.maxDistance,s.radius*this.scale));
-    off.setFromSpherical(s);this.camera.position.copy(this.target).add(off);this.camera.lookAt(this.target);
-    this.sphericalDelta.theta*=1-this.damping;this.sphericalDelta.phi*=1-this.damping;this.scale=1+(this.scale-1)*(1-this.damping);
+
+  // ---------- three.js scene setup ----------
+  const viewportEl = document.getElementById('viewport');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0c0a);
+  scene.fog = new THREE.Fog(0x0a0c0a, 30, 140);
+
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.01, 5000);
+  camera.position.set(6, 5, 9);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  viewportEl.appendChild(renderer.domElement);
+
+  const controls = new OrbitLiteControls(camera, renderer.domElement);
+  controls.minDistance = 0.1;
+  controls.maxDistance = 500;
+
+  const hemi = new THREE.HemisphereLight(0xfff2d0, 0x1a1408, 0.9);
+  scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xffe3ad, 1.15);
+  key.position.set(5, 9, 6);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x6fa8ff, 0.35);
+  rim.position.set(-6, 3, -4);
+  scene.add(rim);
+  const fill = new THREE.AmbientLight(0x404040, 0.4);
+  scene.add(fill);
+
+  const grid = new THREE.GridHelper(40, 40, 0x8a6300, 0x22251a);
+  grid.material.transparent = true;
+  grid.material.opacity = 0.35;
+  scene.add(grid);
+
+  let modelRoot = null;
+  let wireframeOn = false;
+  let autorotate = false;
+  let mixer = null;        // THREE.AnimationMixer for the current model
+  let animAction = null;   // current playing/paused clip action
+  let animPlaying = false;
+  const clock = new THREE.Clock();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    if (autorotate && modelRoot) modelRoot.rotation.y += 0.004;
+    if (mixer && animPlaying) mixer.update(delta);
+    controls.update();
+    renderer.render(scene, camera);
   }
-}
-const controls=new OrbitLite(camera,renderer.domElement);
+  animate();
 
-let modelRoot=null, wire=false, autoRotate=false;
-let animationState=null, animationPlaying=false, animationTime=0;
-const clock=new THREE.Clock();
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
 
-function parseTransform(str){
-  const v=(str||'1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
-  const m=new THREE.Matrix4();
-  m.set(v[0],v[1],v[2],v[9],v[3],v[4],v[5],v[10],v[6],v[7],v[8],v[11],0,0,0,1);
-  return m;
-}
-function showStatus(s){status.textContent=s;status.classList.add('show')}
-function hideStatus(){status.classList.remove('show')}
-function showError(s){error.textContent='ERROR — '+s;error.style.display='block';setTimeout(()=>error.style.display='none',7000)}
+  // ---------- UI wiring ----------
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const statusEl = document.getElementById('status');
+  const errEl = document.getElementById('errbox');
+  const hud = document.getElementById('hud');
+  const btnAnim = document.getElementById('btnAnim');
 
-const FORMAT={
-  float1:{count:1,bytes:4,read:(d,o)=>d.getFloat32(o,true)},
-  float2:{count:2,bytes:4,read:(d,o)=>d.getFloat32(o,true)},
-  float3:{count:3,bytes:4,read:(d,o)=>d.getFloat32(o,true)},
-  float4:{count:4,bytes:4,read:(d,o)=>d.getFloat32(o,true)},
-  ubyte4:{count:4,bytes:1,read:(d,o)=>d.getUint8(o)},
-  ubyte4n:{count:4,bytes:1,read:(d,o)=>d.getUint8(o)/255},
-  byte4:{count:4,bytes:1,read:(d,o)=>d.getInt8(o)},
-  byte4n:{count:4,bytes:1,read:(d,o)=>d.getInt8(o)/127},
-  short2:{count:2,bytes:2,read:(d,o)=>d.getInt16(o,true)},
-  short4:{count:4,bytes:2,read:(d,o)=>d.getInt16(o,true)},
-  ushort2:{count:2,bytes:2,read:(d,o)=>d.getUint16(o,true)},
-  ushort4:{count:4,bytes:2,read:(d,o)=>d.getUint16(o,true)}
-};
-function fmtInfo(fmt){
-  const k=(fmt||'').toLowerCase();if(FORMAT[k])return FORMAT[k];
-  const m=/float(\d+)/i.exec(fmt||'');if(m){const n=+m[1];return{count:n,bytes:4,read:(d,o)=>d.getFloat32(o,true)}}
-  console.warn('[zf3d] unknown vertex format',fmt);return FORMAT.float1;
-}
-function buildLayout(surface){
-  let off=0,layout={};
-  surface.inputs.forEach((n,i)=>{const f=fmtInfo(surface.formats[i]);layout[n]={byteOffset:off,count:f.count,bytes:f.bytes,read:f.read};off+=f.count*f.bytes});
-  return {layout,stride:off||surface.sizePerVertex*4};
-}
-function extractFields(surface,buffer){
-  const {layout,stride}=buildLayout(surface);if(!stride)return null;
-  const count=Math.floor(buffer.byteLength/stride),dv=new DataView(buffer);
-  const get=name=>{
-    const s=layout[name];if(!s)return null;const out=new Float32Array(count*s.count);
-    for(let i=0;i<count;i++)for(let c=0;c<s.count;c++)out[i*s.count+c]=s.read(dv,i*stride+s.byteOffset+c*s.bytes);
-    return out;
+  function showStatus(msg){ statusEl.textContent = msg; statusEl.classList.add('visible'); }
+  function hideStatus(){ statusEl.classList.remove('visible'); }
+  function showError(msg){
+    errEl.textContent = 'ERROR — ' + msg;
+    errEl.classList.add('visible');
+    setTimeout(() => errEl.classList.remove('visible'), 6000);
+  }
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  document.getElementById('btnLoad').addEventListener('click', () => fileInput.click());
+
+  ['dragenter','dragover'].forEach(evt => {
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(evt => {
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (f) handleFile(f);
+  });
+
+  document.getElementById('btnWire').addEventListener('click', (e) => {
+    wireframeOn = !wireframeOn;
+    e.target.classList.toggle('active', wireframeOn);
+    if (modelRoot) modelRoot.traverse(o => { if (o.isMesh) o.material.wireframe = wireframeOn; });
+  });
+  document.getElementById('btnSpin').addEventListener('click', (e) => {
+    autorotate = !autorotate;
+    e.target.classList.toggle('active', autorotate);
+  });
+  document.getElementById('btnGrid').addEventListener('click', (e) => {
+    grid.visible = !grid.visible;
+    e.target.classList.toggle('active', grid.visible);
+  });
+  btnAnim.addEventListener('click', () => {
+    if (!animAction) return;
+    animPlaying = !animPlaying;
+    if (animPlaying){
+      animAction.paused = false;
+      if (animAction.time === 0 && !animAction.isRunning()) animAction.play();
+      clock.getDelta(); // avoid a big first-frame jump after being paused
+    } else {
+      animAction.paused = true;
+    }
+    btnAnim.classList.toggle('active', animPlaying);
+    btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
+  });
+
+  // ---------- ZF3D parsing ----------
+
+  function parseTransform(str){
+    const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
+    const m = new THREE.Matrix4();
+    m.set(
+      v[0], v[1], v[2], v[9],
+      v[3], v[4], v[5], v[10],
+      v[6], v[7], v[8], v[11],
+      0,    0,    0,    1
+    );
+    return m;
+  }
+
+  // ---- vertex field formats -----------------------------------------
+  // Originally this only understood "floatN" and silently defaulted
+  // everything else to a 1-float-wide field. If a surface used a packed
+  // non-float field (e.g. a byte-packed COLOR or bone SKININDEX/
+  // SKINWEIGHT block) every field *after* it in the stride would be
+  // read from the wrong byte offset — which shows up exactly as
+  // "textures wrongly offset" even though the UV data itself is fine.
+  // This table is a best-effort guess at common Flare3D/AGAL vertex
+  // format tokens; unrecognized tokens fall back to float1 with a
+  // console warning instead of failing silently.
+  const FORMAT_INFO = {
+    float1:  { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    float2:  { count:2, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    float3:  { count:3, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    float4:  { count:4, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    ubyte4:  { count:4, bytes:1, read:(dv,o)=>dv.getUint8(o) },
+    ubyte4n: { count:4, bytes:1, read:(dv,o)=>dv.getUint8(o) / 255 },
+    byte4:   { count:4, bytes:1, read:(dv,o)=>dv.getInt8(o) },
+    byte4n:  { count:4, bytes:1, read:(dv,o)=>dv.getInt8(o) / 127 },
+    short2:  { count:2, bytes:2, read:(dv,o)=>dv.getInt16(o, true) },
+    short4:  { count:4, bytes:2, read:(dv,o)=>dv.getInt16(o, true) },
+    ushort2: { count:2, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
+    ushort4: { count:4, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
   };
-  return {count,layout,get};
-}
-function buildGeometry(surface,vertexBuffer,skinSurface,skinBuffer){
-  const f=extractFields(surface,vertexBuffer);if(!f)return null;
-  const g=new THREE.BufferGeometry();
-  const pos=f.get('POSITION');if(pos)g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-  const norm=f.get('NORMAL');if(norm)g.setAttribute('normal',new THREE.BufferAttribute(norm,3));else g.computeVertexNormals();
-  const uv=f.get('UV0');if(uv)g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
-  const color=f.get('COLOR0')||f.get('COLOR');if(color)g.setAttribute('color',new THREE.BufferAttribute(color,f.layout.COLOR0?f.layout.COLOR0.count:f.layout.COLOR.count));
-  let skin=false;
-  if(skinSurface&&skinBuffer){
-    const sf=extractFields(skinSurface,skinBuffer);
-    const wi=sf&&sf.get('SKIN_INDICES'),ww=sf&&sf.get('SKIN_WEIGHTS');
-    if(wi&&ww&&wi.length===ww.length&&wi.length/4===pos.length/3){
-      let max=0;for(let i=0;i<wi.length;i++)max=Math.max(max,Math.abs(wi[i]));
-      const divisor=(max>63&&max%3===0)||(max>22&&max%3===0)?3:1;
-      for(let i=0;i<wi.length;i++)wi[i]=wi[i]/divisor;
-      g.setAttribute('skinIndex',new THREE.BufferAttribute(wi,4));
-      g.setAttribute('skinWeight',new THREE.BufferAttribute(ww,4));
-      g.userData.hasSkin=true;
-    }
+  function getFormatInfo(fmt){
+    const key = (fmt || '').toLowerCase();
+    if (FORMAT_INFO[key]) return FORMAT_INFO[key];
+    const m = /float(\d+)/i.exec(fmt || '');
+    if (m) return { count: parseInt(m[1], 10), bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
+    console.warn('[zf3d] unrecognized vertex format "' + fmt + '" — assuming float1. ' +
+      'If textures/skinning still look wrong, this format needs to be added to FORMAT_INFO.');
+    return { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
   }
-  g.computeBoundingBox();g.computeBoundingSphere();return g;
-}
 
-function parseMaterialData(root){
-  const maps={},filters={},materials={};
-  const mp=root.querySelector(':scope > maps');if(mp)mp.querySelectorAll(':scope > map').forEach(e=>maps[e.getAttribute('id')]={source:e.getAttribute('source')});
-  const fp=root.querySelector(':scope > filters');
-  if(fp)fp.querySelectorAll(':scope > filter').forEach(e=>{
-    const samplers=[...e.querySelectorAll(':scope > sampler')].map(s=>({name:s.getAttribute('name')||'',map:s.getAttribute('map'),wrap:s.getAttribute('wrap')||'1'}));
-    const params={};e.querySelectorAll(':scope > param').forEach(p=>params[p.getAttribute('name')]=(p.getAttribute('value')||'').split(',').map(Number));
-    filters[e.getAttribute('id')]={technique:e.getAttribute('techniqueName')||'',samplers,params};
-  });
-  const mt=root.querySelector(':scope > materials');
-  if(mt)mt.querySelectorAll(':scope > material').forEach(e=>{
-    const sh=e.querySelector(':scope > shader'),ids=sh&&sh.getAttribute('filters')?[...sh.getAttribute('filters').split(',')]:[];
-    materials[e.getAttribute('id')]={twoSided:e.getAttribute('twoSided')==='true',transparent:e.getAttribute('transparent')==='true',
-      filter:ids.map(id=>filters[id]).find(Boolean)||null};
-  });
-  return {maps,materials};
-}
-function textureWrap(v){return v==='0'?THREE.ClampToEdgeWrapping:v==='2'?THREE.MirroredRepeatWrapping:THREE.RepeatWrapping}
-async function loadTexture(zip,source,wrap){
-  const ent=zip.file(source);if(!ent)return null;
-  const blob=await ent.async('blob'),url=URL.createObjectURL(blob);
-  return await new Promise((res,rej)=>new THREE.TextureLoader().load(url,t=>{t.encoding=THREE.sRGBEncoding;t.wrapS=t.wrapT=textureWrap(wrap);t.needsUpdate=true;res(t)},undefined,rej));
-}
-function makeDogColorMaterial(texMask,texTop,filter){
-  const p=filter.params||{},c1=p.color_01||[1,1,1,1],c2=p.color_02||[1,1,1,1],c3=p.color_03||[1,1,1,1];
-  return new THREE.ShaderMaterial({
-    uniforms:{mask:{value:texMask},top:{value:texTop},color1:{value:new THREE.Color(c1[0],c1[1],c1[2])},color2:{value:new THREE.Color(c2[0],c2[1],c2[2])},color3:{value:new THREE.Color(c3[0],c3[1],c3[2])}},
-    vertexShader:`varying vec2 vUv;varying vec3 vN;void main(){vUv=uv;vN=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-    fragmentShader:`uniform sampler2D mask;uniform sampler2D top;uniform vec3 color1,color2,color3;varying vec2 vUv;
-      void main(){vec4 m=texture2D(mask,vUv);vec4 t=texture2D(top,vUv);vec3 base=m.r*color1+m.g*color2+m.b*color3;
-      vec3 col=mix(base,t.rgb,t.a);float light=.62+.38*max(dot(normalize(vN),normalize(vec3(.35,.8,.45))),0.0);gl_FragColor=vec4(col*light,max(t.a,1.0));}`,
-    side:filter.twoSided?THREE.DoubleSide:THREE.FrontSide,
-    transparent:filter.transparent,roughness:0.85,metalness:0.0
-  });
-}
-async function buildMaterials(zip,root,needed){
-  const md=parseMaterialData(root),cache={};
-  for(const id of needed){
-    const def=md.materials[id]||{};const f=def.filter;
-    if(f&&f.technique==='with_texture_3'&&f.samplers.length>=2){
-      const s0=f.samplers.find(s=>s.name==='base_color')||f.samplers[0],s1=f.samplers.find(s=>s.name==='top_texture')||f.samplers[1];
-      const a=md.maps[s0.map],b=md.maps[s1.map];
-      const ta=a?await loadTexture(zip,a.source,s0.wrap):null,tb=b?await loadTexture(zip,b.source,s1.wrap):null;
-      if(ta&&tb){cache[id]=makeDogColorMaterial(ta,tb,{...f,twoSided:def.twoSided,transparent:def.transparent});continue}
+  function buildGeometry(surface, arrayBuffer){
+    // Compute a byte-accurate layout from the declared inputs/formats
+    // instead of blindly treating the whole buffer as Float32.
+    let byteCursor = 0;
+    const layout = {};
+    surface.inputs.forEach((name, idx) => {
+      const info = getFormatInfo(surface.formats[idx]);
+      layout[name] = { byteOffset: byteCursor, count: info.count, bytes: info.bytes, read: info.read };
+      byteCursor += info.count * info.bytes;
+    });
+
+    const declaredStride = surface.sizePerVertex ? surface.sizePerVertex * 4 : 0;
+    if (declaredStride && declaredStride !== byteCursor){
+      console.warn('[zf3d] surface "' + surface.id + '": declared sizePerVertex implies ' +
+        declaredStride + ' bytes/vertex but the inputs/formats list computes to ' + byteCursor +
+        ' bytes/vertex. Using the computed value — if the model still looks wrong, the mismatch ' +
+        'points at a format token that needs fixing above.');
     }
-    const sampler=f&&f.samplers[0],map=sampler&&md.maps[sampler.map],tex=map?await loadTexture(zip,map.source,sampler.wrap):null;
-    if(f&&f.params&&f.params.offset)tex&&tex.offset.set(f.params.offset[0]||0,f.params.offset[1]||0);
-    if(f&&f.params&&f.params.repeat)tex&&tex.repeat.set(f.params.repeat[0]||1,f.params.repeat[1]||1);
-    cache[id]=new THREE.MeshStandardMaterial({map:tex,color:tex?0xffffff:0xb8b6a8,side:def.twoSided?THREE.DoubleSide:THREE.FrontSide,transparent:!!def.transparent,roughness:.85,metalness:.05});
-  }
-  return cache;
-}
+    const byteStride = byteCursor || declaredStride;
+    if (!byteStride) return null;
 
-function parseSkinModifiers(root){
-  const out={};
-  root.querySelectorAll(':scope > modifiers > modifier[type="skin"]').forEach(m=>{
-    const target=m.getAttribute('target');if(!target)return;
-    const bind=parseTransform(m.getAttribute('bindTransform')||'1,0,0,0,1,0,0,0,1,0,0,0');
-    const boneIds=(m.getAttribute('bones')||'').split(',').filter(Boolean);
-    const inv={};m.querySelectorAll(':scope > invBoneMatrix > transform').forEach(t=>inv[t.getAttribute('id')]=parseTransform(t.getAttribute('data')));
-    const surfaces=(m.getAttribute('surfaces')||'').split(',').filter(Boolean);
-    out[target]={bind,boneIds,inv,surfaces};
-  });
-  return out;
-}
-function indexSkinSurface(root,skinMods){
-  const byTarget={};
-  for(const target in skinMods){const m=skinMods[target];byTarget[target]=m.surfaces}
-  return byTarget;
-}
+    const vertexCount = Math.floor(arrayBuffer.byteLength / byteStride);
+    const dv = new DataView(arrayBuffer);
 
-async function parseArchive(file){
-  const buf=await file.arrayBuffer(),zip=await JSZip.loadAsync(buf);
-  const ent=Object.values(zip.files).find(e=>/\.xml$/i.test(e.name));if(!ent)throw Error('no main XML in '+file.name);
-  const xml=new DOMParser().parseFromString(await ent.async('text'),'application/xml');if(xml.querySelector('parsererror'))throw Error('invalid XML in '+file.name);
-  const root=xml.documentElement, surfaces={};
-  const sp=root.querySelector(':scope > surfaces');if(sp)sp.querySelectorAll(':scope > surface').forEach(e=>surfaces[e.getAttribute('id')]={id:e.getAttribute('id'),source:e.getAttribute('source'),name:e.getAttribute('name')||e.getAttribute('id'),size:+e.getAttribute('sizePerVertex')||0,numTriangles:+e.getAttribute('numTriangles')||0,inputs:(e.getAttribute('inputs')||'').split(',').filter(Boolean),formats:(e.getAttribute('formats')||'').split(',').filter(Boolean)});
-  const animDefs={};const ap=root.querySelector(':scope > animations');if(ap)ap.querySelectorAll(':scope > animation').forEach(e=>animDefs[e.getAttribute('id')]={source:e.getAttribute('source'),format:e.getAttribute('format')||'float3x4'});
-  const skinMods=parseSkinModifiers(root),neededSurfaces=new Set(),neededMaterials=new Set(),meshEls=[...root.querySelectorAll('nodes node[type="mesh"]')];
-  meshEls.forEach(n=>{(n.getAttribute('surfaces')||'').split(',').filter(Boolean).forEach(x=>neededSurfaces.add(x));(n.getAttribute('materials')||'').split(',').filter(Boolean).forEach(x=>neededMaterials.add(x));});
-  Object.values(skinMods).forEach(m=>m.surfaces.forEach(x=>neededSurfaces.add(x)));
-  const materialCache=await buildMaterials(zip,root,neededMaterials),geometryCache={};
-  for(const sid of neededSurfaces){
-    const s=surfaces[sid];if(!s||!s.inputs.includes('POSITION'))continue;
-    const vb=await (zip.file(s.source+'.vertex')||{async:()=>null}).async('arraybuffer');if(!vb)continue;
-    let skinSurface=null,skinBuffer=null;
-    for(const mod of Object.values(skinMods)){
-      if(meshEls.some(n=>(n.getAttribute('surfaces')||'').split(',').includes(sid))){
-        const ssid=mod.surfaces[0];if(ssid&&surfaces[ssid]&&zip.file(surfaces[ssid].source+'.vertex')){skinSurface=surfaces[ssid];skinBuffer=await zip.file(surfaces[ssid].source+'.vertex').async('arraybuffer')}
+    function extract(name){
+      const spec = layout[name];
+      if (!spec) return null;
+      const out = new Float32Array(vertexCount * spec.count);
+      for (let i = 0; i < vertexCount; i++){
+        const base = i * byteStride + spec.byteOffset;
+        for (let c = 0; c < spec.count; c++){
+          out[i * spec.count + c] = spec.read(dv, base + c * spec.bytes);
+        }
+      }
+      return out;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    const pos = extract('POSITION');
+    if (pos) geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+    const norm = extract('NORMAL');
+    if (norm) geometry.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+
+    const uv = extract('UV0');
+    if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+
+    const color = extract('COLOR');
+    if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].count));
+
+    // skinning data, if this surface declares it
+    const skinIdxName = surface.inputs.includes('SKININDEX') ? 'SKININDEX' : (surface.inputs.includes('BLENDINDICES') ? 'BLENDINDICES' : null);
+    const skinWtName  = surface.inputs.includes('SKINWEIGHT') ? 'SKINWEIGHT' : (surface.inputs.includes('BLENDWEIGHT') ? 'BLENDWEIGHT' : null);
+    let hasSkin = false;
+    if (skinIdxName && skinWtName){
+      const skinIndex = extract(skinIdxName);
+      const skinWeight = extract(skinWtName);
+      if (skinIndex && skinWeight){
+        geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex, layout[skinIdxName].count));
+        geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, layout[skinWtName].count));
+        hasSkin = true;
       }
     }
-    geometryCache[sid]=buildGeometry(s,vb,skinSurface,skinBuffer);
-  }
-  const group=new THREE.Group();let nodes=0,meshes=0,triangles=0,skinned=0,bones=0;
-  const nodeById={},nodeByName={},skinnedQueue=[],boneNodeIds=new Set();
-  Object.values(skinMods).forEach(m=>m.boneIds.forEach(id=>boneNodeIds.add(id)));
 
-  function walk(el,parent){
-    nodes++;const id=el.getAttribute('id'),name=el.getAttribute('name')||id||'',type=el.getAttribute('type');
-    const isSkinBone=boneNodeIds.has(id),node=isSkinBone?new THREE.Bone():new THREE.Group();
-    node.name=name;node.matrix.copy(parseTransform(el.getAttribute('transform')));node.matrixAutoUpdate=false;node.visible=el.getAttribute('visible')!=='false';
-    parent.add(node);if(id)nodeById[id]=node;if(name)nodeByName[name]=node;if(isSkinBone)bones++;
-    if(type==='mesh'){
-      const sids=(el.getAttribute('surfaces')||'').split(',').filter(Boolean),mids=(el.getAttribute('materials')||'').split(',').filter(Boolean);
-      const mod=skinMods[id];
-      sids.forEach((sid,i)=>{const g=geometryCache[sid];if(!g)return;const mat=(materialCache[mids[i]]||new THREE.MeshStandardMaterial({color:0xb8b6a8})).clone();
-        const mesh=g.userData.hasSkin?new THREE.SkinnedMesh(g,mat):new THREE.Mesh(g,mat);mesh.name=surfaces[sid]?.name||sid;mesh.frustumCulled=false;node.add(mesh);meshes++;triangles+=surfaces[sid]?.numTriangles||0;
-        if(g.userData.hasSkin){skinned++;skinnedQueue.push({mesh,mod})}
+    if (!norm) geometry.computeVertexNormals();
+    geometry.userData.hasSkin = hasSkin;
+    return geometry;
+  }
+
+  // ---- texture UV offset/scale (atlas tiling) ------------------------
+  // Confirmed against a real .zf3d: offset/repeat are NOT attributes on
+  // <sampler> — they're child elements of <filter>:
+  //   <filter ...>
+  //     <param name="repeat" format="float2" value="1,1"/>
+  //     <param name="offset" format="float2" value="0,0"/>
+  //     <sampler name="texture" type="2d" map="8" wrap="1" .../>
+  //   </filter>
+  // The previous version looked for attributes on the wrong element
+  // entirely, so any file with non-default offset/repeat would silently
+  // render with the texture in the wrong place. This reads the actual
+  // <param> elements instead.
+  function parseFilterUV(filterEl){
+    if (!filterEl) return null;
+    const getParam = (name) => {
+      const p = filterEl.querySelector('param[name="' + name + '"]');
+      if (!p) return null;
+      const v = (p.getAttribute('value') || '').split(',').map(Number);
+      return (v.length >= 2 && !v.some(isNaN)) ? v : null;
+    };
+    const offset = getParam('offset');
+    const repeat = getParam('repeat');
+    if (!offset && !repeat) return null;
+    return {
+      uOffset: offset ? offset[0] : 0,
+      vOffset: offset ? offset[1] : 0,
+      uScale: repeat ? repeat[0] : 1,
+      vScale: repeat ? repeat[1] : 1,
+    };
+  }
+
+  // <sampler wrap="0|1|2"> — read from data instead of hardcoding, since
+  // a model can legitimately want clamped (non-tiling) textures.
+  // 0 = clamp, 1 = repeat, 2 = mirrored-repeat (best-effort guess for 2;
+  // 0 and 1 are confirmed against a real sampler element).
+  function wrapModeFromSampler(samplerEl){
+    const w = samplerEl ? samplerEl.getAttribute('wrap') : null;
+    if (w === '0') return THREE.ClampToEdgeWrapping;
+    if (w === '2') return THREE.MirroredRepeatWrapping;
+    return THREE.RepeatWrapping; // default / w === '1'
+  }
+
+  async function parseZf3d(file){
+    const buf = await file.arrayBuffer();
+    if (!buf || buf.byteLength === 0){
+      throw new Error('the selected file is empty (0 bytes)');
+    }
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(buf);
+    } catch (zipErr){
+      throw new Error('could not open as a zip archive — is this really a .zf3d file? (' + zipErr.message + ')');
+    }
+
+    // locate the scene xml (top-level .xml entry)
+    let xmlEntry = null;
+    zip.forEach((path, entry) => {
+      if (!xmlEntry && /\.xml$/i.test(path)) xmlEntry = entry;
+    });
+    if (!xmlEntry) throw new Error('no scene .xml found inside archive');
+
+    const xmlText = await xmlEntry.async('text');
+    const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (xmlDoc.querySelector('parsererror')) throw new Error('scene xml failed to parse');
+    const root = xmlDoc.documentElement;
+
+    // surfaces (geometry descriptors)
+    // top-level <animations> list: animation id -> which .animation file
+    // to load (confirmed format: raw sequential float3x4 matrices, see
+    // loadNodeAnimations below).
+    const animationDefsById = {};
+    const animationsParent = root.querySelector(':scope > animations');
+    if (animationsParent){
+      animationsParent.querySelectorAll(':scope > animation').forEach(el => {
+        animationDefsById[el.getAttribute('id')] = {
+          source: el.getAttribute('source'),
+          format: el.getAttribute('format') || 'float3x4',
+        };
       });
     }
-    [...el.children].filter(c=>c.tagName==='node').forEach(c=>walk(c,node));
-  }
-  const np=root.querySelector(':scope > nodes');if(np)[...np.children].filter(e=>e.tagName==='node').forEach(e=>walk(e,group));
 
-  group.updateMatrixWorld(true);
-  skinnedQueue.forEach(({mesh,mod})=>{
-    const bonesArr=mod.boneIds.map(id=>nodeById[id]).filter(Boolean);if(!bonesArr.length)return;
-    const invs=mod.boneIds.map(id=>{
-      if(mod.inv[id]){
-        const x=mod.inv[id].clone();const bi=mod.bind.clone().invert();return x.multiply(bi);
+    const surfacesById = {};
+    const surfacesParent = root.querySelector(':scope > surfaces');
+    if (surfacesParent){
+      surfacesParent.querySelectorAll(':scope > surface').forEach(el => {
+        surfacesById[el.getAttribute('id')] = {
+          id: el.getAttribute('id'),
+          source: el.getAttribute('source'),
+          name: el.getAttribute('name'),
+          sizePerVertex: parseInt(el.getAttribute('sizePerVertex'), 10) || 0,
+          numTriangles: parseInt(el.getAttribute('numTriangles'), 10) || 0,
+          inputs: (el.getAttribute('inputs') || '').split(',').filter(Boolean),
+          formats: (el.getAttribute('formats') || '').split(',').filter(Boolean),
+        };
+      });
+    }
+
+    // texture maps
+    const mapsById = {};
+    const mapsParent = root.querySelector(':scope > maps');
+    if (mapsParent){
+      mapsParent.querySelectorAll(':scope > map').forEach(el => {
+        mapsById[el.getAttribute('id')] = { source: el.getAttribute('source') };
+      });
+    }
+
+    // filters -> which map id they sample, plus any UV offset/scale
+    const filtersById = {};
+    const filtersParent = root.querySelector(':scope > filters');
+    if (filtersParent){
+      filtersParent.querySelectorAll(':scope > filter').forEach(el => {
+        const sampler = el.querySelector('sampler[map]');
+        filtersById[el.getAttribute('id')] = {
+          mapId: sampler ? sampler.getAttribute('map') : null,
+          uv: parseFilterUV(el),
+          wrap: wrapModeFromSampler(sampler),
+        };
+      });
+    }
+
+    // materials -> resolved texture map id + uv transform
+    const materialDefs = {};
+    const materialsParent = root.querySelector(':scope > materials');
+    if (materialsParent){
+      materialsParent.querySelectorAll(':scope > material').forEach(el => {
+        const shader = el.querySelector('shader');
+        const filterIds = shader && shader.getAttribute('filters') ? shader.getAttribute('filters').split(',') : [];
+        let mapId = null;
+        let uv = null;
+        let wrap = THREE.RepeatWrapping;
+        for (const fid of filterIds){
+          if (filtersById[fid] && filtersById[fid].mapId){
+            mapId = filtersById[fid].mapId;
+            uv = filtersById[fid].uv;
+            wrap = filtersById[fid].wrap;
+            break;
+          }
+        }
+        materialDefs[el.getAttribute('id')] = {
+          name: el.getAttribute('name'),
+          twoSided: el.getAttribute('twoSided') === 'true',
+          transparent: el.getAttribute('transparent') === 'true',
+          mapId,
+          uv,
+          wrap,
+        };
+      });
+    }
+
+    // nodes: gather which surfaces / maps are actually referenced by mesh nodes
+    const meshNodeEls = Array.from(root.querySelectorAll('nodes node[type="mesh"]'));
+    const neededSurfaceIds = new Set();
+    const neededMaterialIds = new Set();
+    meshNodeEls.forEach(el => {
+      (el.getAttribute('surfaces') || '').split(',').filter(Boolean).forEach(id => neededSurfaceIds.add(id));
+      (el.getAttribute('materials') || '').split(',').filter(Boolean).forEach(id => neededMaterialIds.add(id));
+    });
+
+    // load + build geometries for needed surfaces that carry POSITION data
+    const geometryCache = {};
+    let triangleTotal = 0;
+    await Promise.all(Array.from(neededSurfaceIds).map(async (sid) => {
+      const surface = surfacesById[sid];
+      if (!surface || !surface.inputs.includes('POSITION')) return;
+      const fileName = surface.source + '.vertex';
+      const entry = zip.file(fileName);
+      if (!entry) return;
+      const arrayBuffer = await entry.async('arraybuffer');
+      geometryCache[sid] = buildGeometry(surface, arrayBuffer);
+      triangleTotal += surface.numTriangles;
+    }));
+
+    // load textures for needed materials (materials, not maps, since UV
+    // transform is per-material — a texture reused by two materials with
+    // different offsets needs two Texture instances, not a shared one)
+    const textureCache = {}; // keyed by materialId now, not mapId
+    await Promise.all(Array.from(neededMaterialIds).map(async (mid) => {
+      const def = materialDefs[mid];
+      if (!def || !def.mapId) return;
+      const mapDef = mapsById[def.mapId];
+      if (!mapDef || !mapDef.source) return;
+      const entry = zip.file(mapDef.source);
+      if (!entry) return;
+      const blob = await entry.async('blob');
+      const url = URL.createObjectURL(blob);
+      const tex = await new Promise((resolve, reject) => {
+        new THREE.TextureLoader().load(url, resolve, undefined, reject);
+      });
+      tex.encoding = THREE.sRGBEncoding;
+      tex.flipY = true;
+      // Wrap mode now comes from the sampler's actual wrap="" attribute
+      // (see wrapModeFromSampler) instead of being hardcoded — a model
+      // can legitimately want clamped, non-tiling textures.
+      tex.wrapS = def.wrap;
+      tex.wrapT = def.wrap;
+      if (def.uv){
+        tex.repeat.set(def.uv.uScale, def.uv.vScale);
+        tex.offset.set(def.uv.uOffset, def.uv.vOffset);
       }
-      return nodeById[id].matrixWorld.clone().invert();
+      tex.needsUpdate = true;
+      textureCache[mid] = tex;
+    }));
+
+    // build three.js materials
+    const materialCache = {};
+    neededMaterialIds.forEach(mid => {
+      const def = materialDefs[mid] || {};
+      materialCache[mid] = new THREE.MeshStandardMaterial({
+        map: textureCache[mid] || null,
+        color: textureCache[mid] ? 0xffffff : 0xb8b6a8,
+        side: def.twoSided ? THREE.DoubleSide : THREE.FrontSide,
+        transparent: !!def.transparent,
+        roughness: 0.85,
+        metalness: 0.05,
+      });
     });
-    const skeleton=new THREE.Skeleton(bonesArr,invs);
-    mesh.bind(skeleton,mod.bind);
-    mesh.frustumCulled=false;
-  });
+    const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x8a8672, roughness: 0.9 });
 
-  return {file,zip,root,group,nodeById,nodeByName,animDefs,stats:{nodes,meshes,triangles,materials:neededMaterials.size,bones,skinned},animDefs};
-}
+    // walk node tree, building THREE.Bone for bone nodes so a real
+    // skeleton can be assembled afterwards (previously bones were only
+    // *counted*, never linked into anything skinning could use)
+    const group = new THREE.Group();
+    let nodeCount = 0;
+    let meshCount = 0;
+    let boneCount = 0;
+    let skinnedCount = 0;
+    const bonesById = {};
+    const bonesInOrder = [];
+    const skinnedMeshQueue = []; // { mesh, boneIdsAttr }
+    const animatedNodes = [];    // { node, animId, frameSpeed } — rigid pivot-chain animation
 
-async function loadAnimations(parsed,sourceParsed){
-  // sourceParsed may be the model itself or an external skeleton. Match by node name,
-  // not by numeric node id: external skeletons use different ids.
-  const tracks=[];
-  const candidates=[];
-  function collect(p){
-    p.root.querySelectorAll('nodes node[animation]').forEach(e=>{
-      const name=e.getAttribute('name')||e.getAttribute('id');const aid=e.getAttribute('animation');
-      const def=p.animDefs[aid];if(def&&p.zip.file(def.source+'.animation'))candidates.push({name,def,zip:p.zip});
-    });
+    function walk(el, parent){
+      nodeCount++;
+      const type = el.getAttribute('type');
+      const id = el.getAttribute('id');
+      const name = el.getAttribute('name') || id || '';
+      // "bone" here means real per-vertex skinning (type="bone" + a
+      // SKININDEX/SKINWEIGHT surface elsewhere) — confirmed against a
+      // real file that this is NOT how simple rigid pivot-chain
+      // animation (e.g. "Bone001" named *pivot* nodes) is marked, so the
+      // name-based heuristic below only matters for true skinned models.
+      const isBone = type === 'bone';
+
+      const node = isBone ? new THREE.Bone() : new THREE.Group();
+      node.name = name;
+      node.matrix.copy(parseTransform(el.getAttribute('transform')));
+      node.matrixAutoUpdate = false;
+      node.visible = el.getAttribute('visible') !== 'false';
+      parent.add(node);
+
+      if (isBone){
+        boneCount++;
+        bonesInOrder.push(node);
+        if (id) bonesById[id] = node;
+        bonesById[name] = node;
+      }
+
+      const animId = el.getAttribute('animation');
+      if (animId){
+        animatedNodes.push({
+          node,
+          animId,
+          frameSpeed: parseFloat(el.getAttribute('frameSpeed')) || 1,
+        });
+      }
+
+      if (type === 'mesh'){
+        const surfaceIds = (el.getAttribute('surfaces') || '').split(',').filter(Boolean);
+        const materialIds = (el.getAttribute('materials') || '').split(',').filter(Boolean);
+        // best-effort: an explicit "bones" attribute on the mesh node,
+        // comma-separated ids, giving the skinIndex -> bone mapping.
+        // If absent, this falls back to every bone found in the model
+        // (in document order) — flagged in the console since it's a guess.
+        const boneIdsAttr = (el.getAttribute('bones') || '').split(',').filter(Boolean);
+
+        surfaceIds.forEach((sid, idx) => {
+          const geometry = geometryCache[sid];
+          if (!geometry) return;
+          const mat = materialCache[materialIds[idx]] || fallbackMaterial;
+          const meshName = (surfacesById[sid] && surfacesById[sid].name) || sid;
+
+          if (geometry.userData.hasSkin){
+            const mesh = new THREE.SkinnedMesh(geometry, mat.clone());
+            mesh.name = meshName;
+            mesh.frustumCulled = false;
+            node.add(mesh);
+            meshCount++;
+            skinnedCount++;
+            skinnedMeshQueue.push({ mesh, boneIdsAttr });
+          } else {
+            const mesh = new THREE.Mesh(geometry, mat.clone());
+            mesh.name = meshName;
+            node.add(mesh);
+            meshCount++;
+          }
+        });
+      }
+
+      Array.from(el.children).forEach(child => {
+        if (child.tagName === 'node') walk(child, node);
+      });
+    }
+
+    const nodesParent = root.querySelector(':scope > nodes');
+    if (nodesParent){
+      Array.from(nodesParent.children).forEach(el => {
+        if (el.tagName === 'node') walk(el, group);
+      });
+    }
+
+    // bind skeletons now that the full node hierarchy (and every bone's
+    // world matrix) exists
+    if (skinnedMeshQueue.length){
+      group.updateMatrixWorld(true);
+      skinnedMeshQueue.forEach(({ mesh, boneIdsAttr }) => {
+        let bones = boneIdsAttr.map(id => bonesById[id]).filter(Boolean);
+        if (!bones.length){
+          if (boneIdsAttr.length){
+            console.warn('[zf3d] mesh "' + mesh.name + '" declared bones="' + boneIdsAttr.join(',') +
+              '" but none of those ids matched a bone node — falling back to all ' +
+              bonesInOrder.length + ' bones in document order. Skinning may be visually wrong ' +
+              'until the real index-to-bone mapping is confirmed.');
+          } else {
+            console.warn('[zf3d] mesh "' + mesh.name + '" has skin weights but no "bones" attribute ' +
+              'was found on its node — falling back to all ' + bonesInOrder.length +
+              ' bones in document order as a guess for the skinIndex mapping.');
+          }
+          bones = bonesInOrder;
+        }
+        if (!bones.length){
+          console.warn('[zf3d] mesh "' + mesh.name + '" has skin weights but no bones exist in the model — skipping bind.');
+          return;
+        }
+        const skeleton = new THREE.Skeleton(bones);
+        mesh.bind(skeleton, mesh.matrixWorld);
+      });
+    }
+
+    // ---- animation ----------------------------------------------------
+    // Confirmed against a real .zf3d + .animation pair: each animated
+    // node has an animation="<id>" attribute pointing at
+    // <animations><animation id source format="float3x4">, and that
+    // node's <source>.animation file in the zip is a raw, back-to-back
+    // sequence of 3x4 matrices (12 floats / 48 bytes each, no header, no
+    // per-frame timestamp) — the exact same 12-value encoding used by
+    // the transform="" attribute elsewhere in this format. Verified by
+    // decoding a sample file: frame 0 of "2.animation" matches node
+    // id=1's static transform="" exactly, and the file is exactly
+    // (byteLength / 48) whole frames.
+    //
+    // This is RIGID hierarchical animation (each pivot's local transform
+    // is replaced frame-by-frame), not per-vertex skinning — there's no
+    // header specifying a playback frame rate, so ANIMATION_FPS below is
+    // an assumption. If playback looks too fast/slow, adjust it; the
+    // console logs frame count so it's easy to sanity-check.
+    const animClip = await loadNodeAnimations(zip, animationDefsById, animatedNodes);
+
+    return {
+      group,
+      clip: animClip,
+      stats: {
+        nodeCount,
+        meshCount,
+        surfaceCount: neededSurfaceIds.size,
+        materialCount: neededMaterialIds.size,
+        triangleTotal,
+        boneCount,
+        skinnedCount,
+        animatedNodeCount: animatedNodes.length,
+        hasPlayableClip: !!animClip,
+      }
+    };
   }
-  collect(sourceParsed);
-  if(!candidates.length)return null;
-  const seen=new Set();
-  for(const c of candidates){
-    const node=parsed.nodeByName[c.name];if(!node||seen.has(node.uuid))continue;seen.add(node.uuid);
-    const raw=await c.zip.file(c.def.source+'.animation').async('arraybuffer');const f=new Float32Array(raw);if(f.length<24)continue;
-    const count=Math.floor(f.length/12);
-    const frames=new Float32Array(count*12);frames.set(f.subarray(0,count*12));
-    tracks.push({node,frames,count,frameSpeed:parseFloat((parsed.root.querySelector('nodes node[name="'+CSS.escape(c.name)+'"]')||{}).getAttribute?.('frameSpeed'))||1});
+
+  const ANIMATION_FPS = 30; // see comment above — not encoded in the format, adjust if playback speed is off
+
+  async function loadNodeAnimations(zip, animationDefsById, animatedNodes){
+    if (!animatedNodes.length) return null;
+    const tracks = [];
+    let maxDuration = 0;
+    const m = new THREE.Matrix4();
+
+    await Promise.all(animatedNodes.map(async ({ node, animId, frameSpeed }) => {
+      const def = animationDefsById[animId];
+      if (!def) return;
+      const entry = zip.file(def.source + '.animation');
+      if (!entry) return;
+      const buf = await entry.async('arraybuffer');
+      const floats = new Float32Array(buf);
+      const frameCount = Math.floor(floats.length / 12);
+      if (frameCount < 2) return;
+
+      const times = new Array(frameCount);
+      const posValues = new Array(frameCount * 3);
+      const quatValues = new Array(frameCount * 4);
+      const sclValues = new Array(frameCount * 3);
+      const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+
+      for (let f = 0; f < frameCount; f++){
+        const b = f * 12;
+        m.set(
+          floats[b+0], floats[b+1], floats[b+2], floats[b+9],
+          floats[b+3], floats[b+4], floats[b+5], floats[b+10],
+          floats[b+6], floats[b+7], floats[b+8], floats[b+11],
+          0, 0, 0, 1
+        );
+        m.decompose(pos, quat, scl);
+        times[f] = (f / ANIMATION_FPS) / (frameSpeed || 1);
+        posValues[f*3] = pos.x; posValues[f*3+1] = pos.y; posValues[f*3+2] = pos.z;
+        quatValues[f*4] = quat.x; quatValues[f*4+1] = quat.y; quatValues[f*4+2] = quat.z; quatValues[f*4+3] = quat.w;
+        sclValues[f*3] = scl.x; sclValues[f*3+1] = scl.y; sclValues[f*3+2] = scl.z;
+      }
+
+      maxDuration = Math.max(maxDuration, times[times.length - 1]);
+      // node names in this format can contain spaces ("IK Chain001") —
+      // three.js's track-name parser needs those wrapped in {} to bind
+      // correctly, so always brace the name rather than relying on it
+      // being a "safe" identifier.
+      const path = '{' + node.name + '}';
+      tracks.push(new THREE.VectorKeyframeTrack(path + '.position', times, posValues));
+      tracks.push(new THREE.QuaternionKeyframeTrack(path + '.quaternion', times, quatValues));
+      tracks.push(new THREE.VectorKeyframeTrack(path + '.scale', times, sclValues));
+      // let the AnimationMixer drive this node's matrix from
+      // position/quaternion/scale each frame (static nodes stay
+      // matrixAutoUpdate=false for efficiency, see walk() above)
+      node.matrixAutoUpdate = true;
+
+      console.info('[zf3d] animation "' + def.source + '" on node "' + node.name + '": ' +
+        frameCount + ' frames @ ' + ANIMATION_FPS + 'fps assumed = ' + times[times.length-1].toFixed(2) + 's');
+    }));
+
+    if (!tracks.length) return null;
+    return new THREE.AnimationClip('zf3d_animation', maxDuration, tracks);
   }
-  if(!tracks.length)return null;
-  return {tracks,fps:90,duration:Math.max(...tracks.map(t=>(t.count-1)/(90*t.frameSpeed)))};
-}
-function applyAnimation(state,time){
-  for(const t of state.tracks){
-    const frame=Math.min(t.count-1,Math.floor((time*t.fps*t.frameSpeed)%t.count)),b=frame*12,a=t.frames;
-    t.node.matrix.set(a[b],a[b+1],a[b+2],a[b+9],a[b+3],a[b+4],a[b+5],a[b+10],a[b+6],a[b+7],a[b+8],a[b+11],0,0,0,1);
-    t.node.matrixAutoUpdate=false;
+
+  function frameCamera(object3d){
+    object3d.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(object3d);
+    if (box.isEmpty()) return;
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = maxDim * 1.6 / Math.tan((camera.fov * Math.PI/180) / 2);
+    camera.position.set(
+      center.x + dist * 0.55,
+      center.y + dist * 0.4,
+      center.z + dist * 0.55
+    );
+    camera.near = Math.max(maxDim / 500, 0.001);
+    camera.far = maxDim * 50;
+    camera.updateProjectionMatrix();
+    controls.target.copy(center);
+    controls.update();
+    grid.position.y = box.min.y;
+    const gridScale = Math.max(maxDim * 2, 4) / 40;
+    grid.scale.set(gridScale, 1, gridScale);
   }
-}
-function disposeObject(obj){
-  obj.traverse(o=>{if(o.isMesh||o.isSkinnedMesh){o.geometry.dispose();if(o.material.map)o.material.map.dispose();o.material.dispose()}});
-}
-function frameCamera(obj){
-  obj.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(obj);if(box.isEmpty())return;
-  const size=new THREE.Vector3(),center=new THREE.Vector3();box.getSize(size);box.getCenter(center);const d=(Math.max(size.x,size.y,size.z)||1)*1.6/Math.tan(camera.fov*Math.PI/360);
-  camera.position.set(center.x+d*.55,center.y+d*.4,center.z+d*.55);camera.near=Math.max(Math.max(size.x,size.y,size.z)/500,.001);camera.far=Math.max(size.x,size.y,size.z)*50;camera.updateProjectionMatrix();controls.target.copy(center);controls.update();grid.position.y=box.min.y;
-  const s=Math.max(Math.max(size.x,size.y,size.z)*2,4)/40;grid.scale.set(s,1,s);
-}
 
-async function handleFiles(files){
-  if(!files.length)return;
-  showStatus('PARSING…');
-  try{
-    const parsed=await Promise.all(files.map(parseArchive));
-    const model=parsed.find(p=>p.stats.meshes>0&&[...p.root.querySelectorAll('nodes node[type="mesh"]')].length)||parsed[0];
-    if(modelRoot){scene.remove(modelRoot);disposeObject(modelRoot)}
-    modelRoot=model.group;scene.add(modelRoot);
-    animationState=null;animationPlaying=false;animationTime=0;$('anim').disabled=true;$('anim').classList.remove('active');$('anim').textContent='▶ PLAY ANIM';
+  async function handleFile(file){
+    if (!file){
+      showError('no file received from picker');
+      return;
+    }
+    if (!/\.zf3d$/i.test(file.name)){
+      console.warn('file name does not end in .zf3d, attempting to parse anyway:', file.name);
+    }
 
-    // Prefer an explicitly supplied skeleton archive if one is present.
-    let source=model;
-    const external=parsed.find(p=>p!==model&&Object.keys(p.animDefs).length);
-    if(Object.keys(model.animDefs).length===0&&external)source=external;
-    else if(external&&Object.keys(external.animDefs).length>Object.keys(model.animDefs).length)source=external;
-    animationState=await loadAnimations(model,source);
-    if(animationState){applyAnimation(animationState,0);$('anim').disabled=false}
+    showStatus('PARSING ' + (file.name || 'FILE').toUpperCase() + '…');
 
-    modelRoot.traverse(o=>{if(o.isMesh||o.isSkinnedMesh)o.material.wireframe=wire});
-    frameCamera(modelRoot);drop.style.display='none';$('hud').classList.add('show');
-    $('name').textContent=files.map(f=>f.name).join(' + ');
-    $('nodes').textContent=model.stats.nodes;$('surfaces').textContent=model.stats.meshes;$('tris').textContent=model.stats.triangles.toLocaleString();$('mats').textContent=model.stats.materials;$('bones').textContent=model.stats.bones;$('skinned').textContent=model.stats.skinned;
-    $('animInfo').textContent=animationState?`present (${animationState.duration.toFixed(2)}s, ${animationState.tracks.length} nodes @ ${animationState.fps}fps)`:'none';
-    hideStatus();
-  }catch(e){console.error(e);hideStatus();showError(e.message||String(e))}
-}
+    try {
+      const result = await parseZf3d(file);
 
-$('open').onclick=()=>input.click();drop.onclick=()=>input.click();input.onchange=e=>handleFiles([...e.target.files]);
-['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault()}));
-drop.addEventListener('drop',e=>{e.preventDefault();handleFiles([...e.dataTransfer.files].filter(f=>/\.zf3d$/i.test(f.name))}); 
-$('wire').onclick=e=>{wire=!wire;e.currentTarget.classList.toggle('active',wire);modelRoot?.traverse(o=>{if(o.isMesh||o.isSkinnedMesh)o.material.wireframe=wire})};
-$('spin').onclick=e=>{autoRotate=!autoRotate;e.currentTarget.classList.toggle('active',autoRotate)};
-$('gridBtn').onclick=e=>{grid.visible=!grid.visible;e.currentTarget.classList.toggle('active',grid.visible)};
-$('anim').onclick=e=>{
-  if(!animationState)return;
-  animationPlaying=!animationPlaying;e.currentTarget.classList.toggle('active',animationPlaying);e.currentTarget.textContent=animationPlaying?'⏸ PAUSE ANIM':'▶ PLAY ANIM';
-  if(animationPlaying&&animationTime>=animationState.duration)animationTime=0;
-};
+      if (modelRoot){
+        scene.remove(modelRoot);
+        modelRoot.traverse(o => {
+          if (o.isMesh || o.isSkinnedMesh){
+            o.geometry.dispose();
+            if (o.material.map) o.material.map.dispose();
+            o.material.dispose();
+          }
+        });
+      }
+      mixer = null;
+      animAction = null;
+      animPlaying = false;
+      btnAnim.classList.remove('active');
+      btnAnim.textContent = '▶ PLAY ANIM';
+      btnAnim.disabled = true;
 
-addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-function animate(){
-  requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);
-  if(autoRotate&&modelRoot)modelRoot.rotation.y+=.004;
-  if(animationState&&animationPlaying){animationTime+=dt;if(animationTime>animationState.duration)animationTime%=animationState.duration;applyAnimation(animationState,animationTime);modelRoot.updateMatrixWorld(true)}
-  controls.update();renderer.render(scene,camera);
-}
-camera.position.set(6,5,9);animate();
+      modelRoot = result.group;
+      modelRoot.traverse(o => { if (o.isMesh || o.isSkinnedMesh) o.material.wireframe = wireframeOn; });
+      scene.add(modelRoot);
+      frameCamera(modelRoot);
+
+      if (result.clip){
+        mixer = new THREE.AnimationMixer(modelRoot);
+        animAction = mixer.clipAction(result.clip);
+        animAction.play();
+        animAction.paused = true; // start paused; user presses play
+        btnAnim.disabled = false;
+      }
+
+      dropzone.style.display = 'none';
+      hud.classList.add('visible');
+      document.getElementById('hudName').textContent = file.name;
+      document.getElementById('hudNodes').textContent = result.stats.nodeCount;
+      document.getElementById('hudSurfaces').textContent = result.stats.surfaceCount + ' (' + result.stats.meshCount + ' mesh)';
+      document.getElementById('hudTris').textContent = result.stats.triangleTotal.toLocaleString();
+      document.getElementById('hudMats').textContent = result.stats.materialCount;
+      document.getElementById('hudBones').textContent = result.stats.boneCount;
+      document.getElementById('hudSkinned').textContent = result.stats.skinnedCount;
+
+      let animLabel = 'none (bind pose)';
+      if (result.stats.hasPlayableClip){
+        animLabel = 'present (' + result.clip.duration.toFixed(2) + 's, ' +
+          result.stats.animatedNodeCount + ' nodes)';
+      } else if (result.stats.animatedNodeCount){
+        animLabel = 'present (failed to load — see console)';
+      }
+      document.getElementById('hudAnim').textContent = animLabel;
+
+      hideStatus();
+    } catch (err){
+      console.error(err);
+      hideStatus();
+      showError(err.message || String(err));
+    }
+  }
+
 })();
 </script>
 </body>
