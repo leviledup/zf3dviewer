@@ -36,7 +36,7 @@ const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
-debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:150px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
+debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:160px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
 debugBox.innerHTML = '<b>ZF3D Parser:</b><br/>Ready...';
 container.appendChild(debugBox);
 
@@ -68,43 +68,49 @@ async function parseZF3D(file) {
 
     const zip = await JSZip.loadAsync(file);
     const entries = Object.keys(zip.files);
-    
-    const vertexKey = entries.find(name => name.includes('.vertex') || name.endsWith('vertex'));
-    const indexKey = entries.find(name => name.includes('.index') || name.endsWith('index'));
+    logDebug(`Zip contents: ${entries.join(', ')}`);
+
+    // Find vertex file and index file dynamically
+    const vertexKey = entries.find(name => name.endsWith('.vertex') || name.includes('vertex'));
+    const indexKey = entries.find(name => name.endsWith('.index') || name.includes('index') || name.endsWith('.faces'));
 
     if (!vertexKey) {
-      logDebug('ERROR: No vertex file found');
+      logDebug('ERROR: No vertex file found!');
       return;
     }
 
     const vBuffer = await zip.files[vertexKey].async('arraybuffer');
-    let idxBuffer = indexKey ? await zip.files[indexKey].async('arraybuffer') : null;
+    logDebug(`Vertex: ${vertexKey} (${vBuffer.byteLength} b)`);
 
-    logDebug(`Vertex buffer: ${vBuffer.byteLength} bytes`);
+    let idxBuffer = null;
+    if (indexKey) {
+      idxBuffer = await zip.files[indexKey].async('arraybuffer');
+      logDebug(`Index: ${indexKey} (${idxBuffer.byteLength} b)`);
+    } else {
+      logDebug('WARNING: No index file found, looking for alternative buffers...');
+      // Check if any other small file could be indices
+      const candidateIndexKey = entries.find(name => name !== vertexKey && zip.files[name] && !name.endsWith('.jpg') && !name.endsWith('.png') && !name.includes('animation'));
+      if (candidateIndexKey) {
+        idxBuffer = await zip.files[candidateIndexKey].async('arraybuffer');
+        logDebug(`Fallback Index candidate: ${candidateIndexKey} (${idxBuffer.byteLength} b)`);
+      }
+    }
 
-    // Flare3D standard interleaved vertex layout usually has a stride of 8 floats (32 bytes):
-    // Pos (3 floats) + Normal/UV/Weights (5 floats) = 8 floats per vertex.
     const STRIDE_FLOATS = 8; 
     const floats = new Float32Array(vBuffer);
     const totalVertices = Math.floor(floats.length / STRIDE_FLOATS);
-
-    logDebug(`Calculated vertices: ${totalVertices} (Stride: ${STRIDE_FLOATS})`);
 
     const positions = new Float32Array(totalVertices * 3);
     const uvs = new Float32Array(totalVertices * 2);
 
     for (let i = 0; i < totalVertices; i++) {
       const base = i * STRIDE_FLOATS;
-      // Position X, Y, Z
       positions[i * 3]     = floats[base + 0];
       positions[i * 3 + 1] = floats[base + 1];
       positions[i * 3 + 2] = floats[base + 2];
 
-      // UVs are usually at offset 6 and 7 in standard Flare3D layouts
-      if (STRIDE_FLOATS >= 8) {
-        uvs[i * 2]     = floats[base + 6];
-        uvs[i * 2 + 1] = floats[base + 7];
-      }
+      uvs[i * 2]     = floats[base + 6];
+      uvs[i * 2 + 1] = floats[base + 7];
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -112,9 +118,15 @@ async function parseZF3D(file) {
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
     if (idxBuffer) {
-      const indices = new Uint16Array(idxBuffer);
+      // Try parsing indices as Uint16Array, or Uint32Array if sizes match better
+      let indices;
+      if (idxBuffer.byteLength === totalVertices * 2 || idxBuffer.byteLength > totalVertices * 2) {
+        indices = new Uint16Array(idxBuffer);
+      } else {
+        indices = new Uint16Array(idxBuffer);
+      }
       geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-      logDebug(`Loaded index count: ${indices.length}`);
+      logDebug(`Applied index count: ${indices.length}`);
     }
 
     geometry.computeVertexNormals();
@@ -138,8 +150,8 @@ async function parseZF3D(file) {
 
     statusEl.textContent = 'Rendered successfully';
     vertexCountEl.textContent = totalVertices.toLocaleString();
-    faceCountEl.textContent = geometry.index ? (geometry.index.count / 3).toLocaleString() : Math.floor(totalVertices / 3).toLocaleString();
-    logDebug('Render complete!');
+    faceCountEl.textContent = geometry.index ? Math.floor(geometry.index.count / 3).toLocaleString() : Math.floor(totalVertices / 3).toLocaleString();
+    logDebug('Done!');
 
   } catch (err) {
     console.error(err);
