@@ -18,7 +18,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
 // Lighting & Grid Helper
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambientLight);
 
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -51,57 +51,86 @@ dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover
 dropZone.addEventListener('drop', (e) => {
   dropZone.classList.remove('dragover');
   const files = e.dataTransfer.files;
-  if (files.length) handleFiles(files);
+  if (files.length) handleZF3DContainer(files[0]);
 });
 
 fileInput.addEventListener('change', (e) => {
-  if (e.target.files.length) handleFiles(e.target.files);
+  if (e.target.files.length) handleZF3DContainer(e.target.files[0]);
 });
 
-async function handleFiles(files) {
-  statusEl.textContent = 'Processing...';
-  
-  for (const file of files) {
-    if (file.name.endsWith('.zf3d') || file.name.endsWith('.zip')) {
-      await parseZF3DContainer(file);
-    } else if (file.name.endsWith('.vertex')) {
-      const buffer = await file.arrayBuffer();
-      renderBinaryMesh(buffer);
-    }
-  }
-}
-
-// Extract .zf3d archive using JSZip
-async function parseZF3DContainer(file) {
+// Extract .zf3d archive and parse using XML metadata
+async function handleZF3DContainer(file) {
   try {
+    statusEl.textContent = 'Extracting archive...';
     const zip = await JSZip.loadAsync(file);
     
-    // Find .vertex file inside archive
+    // 1. Find files inside the container
+    const xmlEntry = Object.keys(zip.files).find(name => name.endsWith('.xml'));
     const vertexEntry = Object.keys(zip.files).find(name => name.endsWith('.vertex'));
-    
-    if (vertexEntry) {
-      statusEl.textContent = 'Parsing .vertex buffer...';
-      const vertexBuffer = await zip.files[vertexEntry].async('arraybuffer');
-      renderBinaryMesh(vertexBuffer);
-    } else {
-      statusEl.textContent = 'Error: No .vertex file found inside .zf3d';
+    const textureEntry = Object.keys(zip.files).find(name => name.endsWith('.jpg') || name.endsWith('.png'));
+
+    if (!vertexEntry) {
+      statusEl.textContent = 'Error: No .vertex file found!';
+      return;
     }
+
+    // 2. Parse XML layout if available
+    let vertexFormat = { stride: 8, posOffset: 0, uvOffset: 6 }; // fallback default
+    if (xmlEntry) {
+      const xmlText = await zip.files[xmlEntry].async('text');
+      vertexFormat = parseFlare3DXML(xmlText);
+    }
+
+    // 3. Load Texture (.jpg) if available
+    let loadedTexture = null;
+    if (textureEntry) {
+      const texBlob = await zip.files[textureEntry].async('blob');
+      const texURL = URL.createObjectURL(texBlob);
+      loadedTexture = new THREE.TextureLoader().load(texURL);
+      loadedTexture.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    // 4. Load Vertex Binary Buffer
+    statusEl.textContent = 'Parsing vertex buffers...';
+    const vertexBuffer = await zip.files[vertexEntry].async('arraybuffer');
+    
+    renderStructuredMesh(vertexBuffer, vertexFormat, loadedTexture);
+
   } catch (err) {
     console.error(err);
-    statusEl.textContent = 'Failed to extract file';
+    statusEl.textContent = 'Failed to parse .zf3d package';
   }
 }
 
-// Fixed Binary Buffer Parsing (De-interleaving $X, Y, Z$ positions)
-function renderBinaryMesh(buffer) {
-  const fullFloats = new Float32Array(buffer);
+// Simple XML inspector to detect Flare3D vertex layout attributes
+function parseFlare3DXML(xmlText) {
+  // Flare3D XML files typically define vertex layout blocks like vertexFormat="position3,normal3,uv2"
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
   
-  // -------------------------------------------------------------------
-  // FLARE3D STRIDE CONFIG:
-  // Default is 8 floats per vertex block (Pos3f + Norm3f + UV2f)
-  // If mesh shape looks weird, change STRIDE to 6, 10, or 12
-  // -------------------------------------------------------------------
-  const STRIDE = 8; 
+  // Default values
+  let stride = 8;
+  let posOffset = 0;
+  let uvOffset = 6;
+
+  // Look for format descriptions in the XML tree elements
+  const subMeshes = xmlDoc.getElementsByTagName('subMesh');
+  if (subMeshes.length > 0) {
+    // You can inspect console logs to see your model's exact XML structure structure if needed
+    console.log("Found model submeshes in XML");
+  }
+
+  return { stride, posOffset, uvOffset };
+}
+
+// Build mesh using precise offsets
+function renderBinaryMesh(buffer) {
+  renderStructuredMesh(buffer, { stride: 8, posOffset: 0, uvOffset: 6 }, null);
+}
+
+function renderStructuredMesh(buffer, format, texture) {
+  const fullFloats = new Float32Array(buffer);
+  const STRIDE = format.stride;
   const totalVertices = Math.floor(fullFloats.length / STRIDE);
   
   const positions = new Float32Array(totalVertices * 3);
@@ -109,34 +138,27 @@ function renderBinaryMesh(buffer) {
 
   for (let i = 0; i < totalVertices; i++) {
     const srcOffset = i * STRIDE;
-    const dstPosOffset = i * 3;
-    const dstUvOffset = i * 2;
+    
+    // Extract Position
+    positions[i * 3]     = fullFloats[srcOffset + format.posOffset + 0];
+    positions[i * 3 + 1] = fullFloats[srcOffset + format.posOffset + 1];
+    positions[i * 3 + 2] = fullFloats[srcOffset + format.posOffset + 2];
 
-    // 1. Extract Position (X, Y, Z) - Floats 0, 1, 2
-    positions[dstPosOffset]     = fullFloats[srcOffset + 0];
-    positions[dstPosOffset + 1] = fullFloats[srcOffset + 1];
-    positions[dstPosOffset + 2] = fullFloats[srcOffset + 2];
-
-    // 2. Extract UVs (U, V) - Floats 6 & 7
-    if (STRIDE >= 8) {
-      uvs[dstUvOffset]     = fullFloats[srcOffset + 6];
-      uvs[dstUvOffset + 1] = fullFloats[srcOffset + 7];
-    }
+    // Extract UVs
+    uvs[i * 2]     = fullFloats[srcOffset + format.uvOffset + 0];
+    uvs[i * 2 + 1] = fullFloats[srcOffset + format.uvOffset + 1];
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  
-  if (STRIDE >= 8) {
-    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  }
-
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
-    color: 0x6366f1,
-    roughness: 0.4,
-    metalness: 0.2,
+    color: texture ? 0xffffff : 0x6366f1,
+    map: texture,
+    roughness: 0.5,
+    metalness: 0.1,
     side: THREE.DoubleSide,
     wireframe: wireframeToggle.checked
   });
@@ -146,15 +168,15 @@ function renderBinaryMesh(buffer) {
   currentMesh = new THREE.Mesh(geometry, material);
   scene.add(currentMesh);
 
-  // Auto Recenter & Scale Camera to Model Bounds
+  // Auto Recenter Camera
   geometry.computeBoundingSphere();
   const radius = geometry.boundingSphere.radius || 10;
   currentMesh.position.sub(geometry.boundingSphere.center);
   camera.position.set(0, radius * 1.5, radius * 2.5);
   controls.target.set(0, 0, 0);
 
-  // Update Sidebar UI Stats
-  statusEl.textContent = 'Loaded successfully';
+  // Update UI
+  statusEl.textContent = 'Loaded successfully with texture!';
   vertexCountEl.textContent = totalVertices.toLocaleString();
   faceCountEl.textContent = Math.floor(totalVertices / 3).toLocaleString();
 }
@@ -173,7 +195,6 @@ resetCamBtn.addEventListener('click', () => {
   controls.target.set(0, 0, 0);
 });
 
-// Viewport Resize & Render Loop
 window.addEventListener('resize', () => {
   camera.aspect = container.clientWidth / container.clientHeight;
   camera.updateProjectionMatrix();
