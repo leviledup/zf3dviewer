@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+// Setup WebGL Renderer, Scene, and Camera
 const container = document.getElementById('viewport');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0f0f12);
@@ -26,7 +27,7 @@ scene.add(dirLight);
 const grid = new THREE.GridHelper(20, 20, 0x2a2a35, 0x1a1a22);
 scene.add(grid);
 
-let currentGroup = null;
+let currentMesh = null;
 
 const statusEl = document.getElementById('status');
 const vertexCountEl = document.getElementById('vertexCount');
@@ -34,6 +35,18 @@ const faceCountEl = document.getElementById('faceCount');
 const wireframeToggle = document.getElementById('wireframeToggle');
 const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
+
+// Add an on-screen debug log box dynamically so you can see logs on your phone screen
+const debugBox = document.createElement('div');
+debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:300px; max-height:150px; background:rgba(0,0,0,0.8); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999; pointer-events:none;';
+debugBox.innerHTML = '<b>Debug Log:</b><br/>Ready...';
+container.appendChild(debugBox);
+
+function logDebug(text) {
+  console.log(text);
+  debugBox.innerHTML += `<br/>> ${text}`;
+  debugBox.scrollTop = debugBox.scrollHeight;
+}
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -52,126 +65,66 @@ fileInput.addEventListener('change', (e) => {
 
 async function handleZF3DContainer(file) {
   try {
-    statusEl.textContent = 'Extracting archive...';
+    statusEl.textContent = 'Reading archive...';
+    logDebug(`Opening file: ${file.name}`);
+
     const zip = await JSZip.loadAsync(file);
-    
     const entries = Object.keys(zip.files);
-    console.log("All package entries:", entries);
+    logDebug(`Found entries: ${entries.join(', ' * 1)}`);
 
-    // Find ALL vertex files instead of just the first one
-    const vertexKeys = entries.filter(name => name.endsWith('.vertex'));
-    const indexKey = entries.find(name => name.endsWith('.index') || name.includes('index'));
-    const textureKey = entries.find(name => name.endsWith('.jpg') || name.endsWith('.png'));
-
-    if (vertexKeys.length === 0) {
-      statusEl.textContent = 'Error: No .vertex files found!';
+    const vertexKey = entries.find(name => name.endsWith('.vertex'));
+    if (!vertexKey) {
+      statusEl.textContent = 'Error: No .vertex file found!';
+      logDebug('ERROR: Missing .vertex file in zip');
       return;
     }
 
-    // Load texture if available
-    let texture = null;
-    if (textureKey) {
-      const texBlob = await zip.files[textureKey].async('blob');
-      const texURL = URL.createObjectURL(texBlob);
-      texture = new THREE.TextureLoader().load(texURL);
-      texture.colorSpace = THREE.SRGBColorSpace;
-    }
+    const vertexBuffer = await zip.files[vertexKey].async('arraybuffer');
+    logDebug(`Loaded vertex buffer size: ${vertexBuffer.byteLength} bytes`);
 
-    statusEl.textContent = `Parsing ${vertexKeys.length} submesh(es)...`;
-
-    // Load global index buffer if it exists
-    let globalIndexBuffer = null;
-    if (indexKey) {
-      globalIndexBuffer = await zip.files[indexKey].async('arraybuffer');
-    }
-
-    // Create a parent group to hold all submeshes together
-    if (currentGroup) scene.remove(currentGroup);
-    currentGroup = new THREE.Group();
-
-    let totalVertsCount = 0;
-    let totalFacesCount = 0;
-
-    // Loop through every single .vertex file found in the archive
-    for (const vKey of vertexKeys) {
-      const vertBuffer = await zip.files[vKey].async('arraybuffer');
-      const mesh = buildSubmesh(vertBuffer, globalIndexBuffer, texture);
-      if (mesh) {
-        currentGroup.add(mesh);
-        totalVertsCount += mesh.geometry.attributes.position.count;
-        totalFacesCount += mesh.geometry.index ? mesh.geometry.index.count / 3 : mesh.geometry.attributes.position.count / 3;
-      }
-    }
-
-    scene.add(currentGroup);
-
-    // Center entire group container
-    const box = new THREE.Box3().setFromObject(currentGroup);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z) || 10;
-    
-    currentGroup.position.sub(center);
-    camera.position.set(0, maxDim * 0.5, maxDim * 2);
-    controls.target.set(0, 0, 0);
-
-    statusEl.textContent = 'Loaded successfully';
-    vertexCountEl.textContent = totalVertsCount.toLocaleString();
-    faceCountEl.textContent = Math.floor(totalFacesCount).toLocaleString();
+    // Diagnostic Direct Dump (Stride = 3 raw positional floats)
+    renderRawMeshDirectly(vertexBuffer);
 
   } catch (err) {
     console.error(err);
     statusEl.textContent = 'Failed to read package';
+    logDebug(`ERROR: ${err.message}`);
   }
 }
 
-function buildSubmesh(vertBuffer, idxBuffer, texture) {
-  const fullFloats = new Float32Array(vertBuffer);
-  const STRIDE = 8;
-  const totalVertices = Math.floor(fullFloats.length / STRIDE);
-  if (totalVertices <= 0) return null;
-
-  const positions = new Float32Array(totalVertices * 3);
-  const uvs = new Float32Array(totalVertices * 2);
-
-  for (let i = 0; i < totalVertices; i++) {
-    const base = i * STRIDE;
-    positions[i * 3]     = fullFloats[base + 0];
-    positions[i * 3 + 1] = fullFloats[base + 1];
-    positions[i * 3 + 2] = fullFloats[base + 2];
-
-    uvs[i * 2]     = fullFloats[base + 6];
-    uvs[i * 2 + 1] = fullFloats[base + 7];
-  }
+function renderRawMeshDirectly(buffer) {
+  const floats = new Float32Array(buffer);
+  logDebug(`Total floats parsed: ${floats.length}`);
+  logDebug(`First 6 values: ${floats[0]}, ${floats[1]}, ${floats[2]} | ${floats[3]}, ${floats[4]}, ${floats[5]}`);
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-
-  if (idxBuffer) {
-    const indices = new Uint16Array(idxBuffer);
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  }
-
+  geometry.setAttribute('position', new THREE.BufferAttribute(floats, 3));
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
-    color: texture ? 0xffffff : 0x6366f1,
-    map: texture,
+    color: 0x6366f1,
     roughness: 0.4,
     side: THREE.DoubleSide,
     wireframe: wireframeToggle.checked
   });
 
-  return new THREE.Mesh(geometry, material);
+  if (currentMesh) scene.remove(currentMesh);
+  currentMesh = new THREE.Mesh(geometry, material);
+  scene.add(currentMesh);
+
+  geometry.computeBoundingSphere();
+  const radius = geometry.boundingSphere.radius || 10;
+  currentMesh.position.sub(geometry.boundingSphere.center);
+  camera.position.set(0, radius * 1.5, radius * 2.5);
+  controls.target.set(0, 0, 0);
+
+  statusEl.textContent = 'Rendered raw buffer';
+  vertexCountEl.textContent = Math.floor(floats.length / 3).toLocaleString();
+  faceCountEl.textContent = Math.floor(floats.length / 9).toLocaleString();
 }
 
 wireframeToggle.addEventListener('change', (e) => {
-  if (currentGroup) {
-    currentGroup.traverse((child) => {
-      if (child.isMesh) child.material.wireframe = e.target.checked;
-    });
-  }
+  if (currentMesh) currentMesh.material.wireframe = e.target.checked;
 });
 
 autoRotateToggle.addEventListener('change', (e) => {
