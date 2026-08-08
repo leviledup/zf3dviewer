@@ -31,7 +31,6 @@
   }
   #viewport canvas{ display:block; }
 
-  /* scanline / vignette overlay for the CRT-archaeology signature */
   #scanlines{
     position:fixed; inset:0; pointer-events:none; z-index:5;
     background:repeating-linear-gradient(
@@ -48,7 +47,6 @@
     box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.65);
   }
 
-  /* top bar */
   #topbar{
     position:fixed; top:0; left:0; right:0; z-index:10;
     display:flex; align-items:center; justify-content:space-between;
@@ -56,6 +54,7 @@
     border-bottom:1px solid var(--panel-line);
     background:linear-gradient(to bottom, rgba(10,12,10,0.92), rgba(10,12,10,0.0));
     pointer-events:none;
+    flex-wrap:wrap; gap:8px;
   }
   #topbar .brand{
     display:flex; align-items:baseline; gap:10px;
@@ -68,7 +67,7 @@
     color:var(--text-dim); font-size:11px; letter-spacing:0.06em;
   }
   #topbar .actions{
-    display:flex; gap:8px; pointer-events:auto;
+    display:flex; gap:8px; pointer-events:auto; flex-wrap:wrap;
   }
   button.chip{
     font-family:var(--mono);
@@ -79,7 +78,7 @@
     letter-spacing:0.05em;
     padding:7px 11px;
     cursor:pointer;
-    transition:border-color 0.15s, color 0.15s;
+    transition:border-color 0.15s, color 0.15s, opacity 0.15s;
   }
   button.chip:hover{
     border-color:var(--amber-dim);
@@ -90,8 +89,15 @@
     color:var(--amber);
     background:var(--amber-faint);
   }
+  button.chip:disabled{
+    opacity:0.35;
+    cursor:default;
+  }
+  button.chip:disabled:hover{
+    border-color:var(--panel-line);
+    color:var(--text-dim);
+  }
 
-  /* HUD readout, bottom-left */
   #hud{
     position:fixed; left:18px; bottom:18px; z-index:10;
     font-size:11px; line-height:1.65;
@@ -113,7 +119,6 @@
   }
   #hud hr{ border:none; border-top:1px solid var(--panel-line); margin:8px 0; }
 
-  /* drop zone */
   #dropzone{
     position:fixed; inset:0; z-index:20;
     display:flex; align-items:center; justify-content:center;
@@ -194,6 +199,7 @@
     <button class="chip" id="btnWire">WIREFRAME</button>
     <button class="chip" id="btnSpin">AUTOROTATE</button>
     <button class="chip active" id="btnGrid">GRID</button>
+    <button class="chip" id="btnAnim" disabled>▶ PLAY ANIM</button>
   </div>
 </div>
 
@@ -206,6 +212,7 @@
   <div class="row"><span class="k">materials</span><span class="v" id="hudMats">0</span></div>
   <hr>
   <div class="row"><span class="k">bones</span><span class="v" id="hudBones">0</span></div>
+  <div class="row"><span class="k">skinned meshes</span><span class="v" id="hudSkinned">0</span></div>
   <div class="row"><span class="k">animation</span><span class="v" id="hudAnim">none</span></div>
 </div>
 
@@ -242,9 +249,6 @@
   });
 
   // ---------- minimal dependency-free orbit controls ----------
-  // (OrbitControls.js isn't published on cdnjs as a standalone file,
-  // and this environment only allow-lists cdnjs — so it's reimplemented
-  // here rather than pulled from another CDN host.)
   function OrbitLiteControls(camera, domElement){
     this.camera = camera;
     this.domElement = domElement;
@@ -387,10 +391,16 @@
   let modelRoot = null;
   let wireframeOn = false;
   let autorotate = false;
+  let mixer = null;        // THREE.AnimationMixer for the current model
+  let animAction = null;   // current playing/paused clip action
+  let animPlaying = false;
+  const clock = new THREE.Clock();
 
   function animate(){
     requestAnimationFrame(animate);
+    const delta = clock.getDelta();
     if (autorotate && modelRoot) modelRoot.rotation.y += 0.004;
+    if (mixer && animPlaying) mixer.update(delta);
     controls.update();
     renderer.render(scene, camera);
   }
@@ -408,6 +418,7 @@
   const statusEl = document.getElementById('status');
   const errEl = document.getElementById('errbox');
   const hud = document.getElementById('hud');
+  const btnAnim = document.getElementById('btnAnim');
 
   function showStatus(msg){ statusEl.textContent = msg; statusEl.classList.add('visible'); }
   function hideStatus(){ statusEl.classList.remove('visible'); }
@@ -449,6 +460,19 @@
     grid.visible = !grid.visible;
     e.target.classList.toggle('active', grid.visible);
   });
+  btnAnim.addEventListener('click', () => {
+    if (!animAction) return;
+    animPlaying = !animPlaying;
+    if (animPlaying){
+      animAction.paused = false;
+      if (animAction.time === 0 && !animAction.isRunning()) animAction.play();
+      clock.getDelta(); // avoid a big first-frame jump after being paused
+    } else {
+      animAction.paused = true;
+    }
+    btnAnim.classList.toggle('active', animPlaying);
+    btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
+  });
 
   // ---------- ZF3D parsing ----------
 
@@ -464,36 +488,75 @@
     return m;
   }
 
-  function formatComponentCount(fmt){
-    // "float3" -> 3, "float4" -> 4, "float2" -> 2, "float1" -> 1
-    const m = /float(\d+)/.exec(fmt || '');
-    return m ? parseInt(m[1], 10) : 1;
+  // ---- vertex field formats -----------------------------------------
+  // Originally this only understood "floatN" and silently defaulted
+  // everything else to a 1-float-wide field. If a surface used a packed
+  // non-float field (e.g. a byte-packed COLOR or bone SKININDEX/
+  // SKINWEIGHT block) every field *after* it in the stride would be
+  // read from the wrong byte offset — which shows up exactly as
+  // "textures wrongly offset" even though the UV data itself is fine.
+  // This table is a best-effort guess at common Flare3D/AGAL vertex
+  // format tokens; unrecognized tokens fall back to float1 with a
+  // console warning instead of failing silently.
+  const FORMAT_INFO = {
+    float1:  { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    float2:  { count:2, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    float3:  { count:3, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    float4:  { count:4, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
+    ubyte4:  { count:4, bytes:1, read:(dv,o)=>dv.getUint8(o) },
+    ubyte4n: { count:4, bytes:1, read:(dv,o)=>dv.getUint8(o) / 255 },
+    byte4:   { count:4, bytes:1, read:(dv,o)=>dv.getInt8(o) },
+    byte4n:  { count:4, bytes:1, read:(dv,o)=>dv.getInt8(o) / 127 },
+    short2:  { count:2, bytes:2, read:(dv,o)=>dv.getInt16(o, true) },
+    short4:  { count:4, bytes:2, read:(dv,o)=>dv.getInt16(o, true) },
+    ushort2: { count:2, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
+    ushort4: { count:4, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
+  };
+  function getFormatInfo(fmt){
+    const key = (fmt || '').toLowerCase();
+    if (FORMAT_INFO[key]) return FORMAT_INFO[key];
+    const m = /float(\d+)/i.exec(fmt || '');
+    if (m) return { count: parseInt(m[1], 10), bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
+    console.warn('[zf3d] unrecognized vertex format "' + fmt + '" — assuming float1. ' +
+      'If textures/skinning still look wrong, this format needs to be added to FORMAT_INFO.');
+    return { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
   }
 
   function buildGeometry(surface, arrayBuffer){
-    const floats = new Float32Array(arrayBuffer);
-    const stride = surface.sizePerVertex;
-    const vertexCount = Math.floor(floats.length / stride);
-
-    let offset = 0;
+    // Compute a byte-accurate layout from the declared inputs/formats
+    // instead of blindly treating the whole buffer as Float32.
+    let byteCursor = 0;
     const layout = {};
     surface.inputs.forEach((name, idx) => {
-      const size = formatComponentCount(surface.formats[idx]);
-      layout[name] = { offset, size };
-      offset += size;
+      const info = getFormatInfo(surface.formats[idx]);
+      layout[name] = { byteOffset: byteCursor, count: info.count, bytes: info.bytes, read: info.read };
+      byteCursor += info.count * info.bytes;
     });
+
+    const declaredStride = surface.sizePerVertex ? surface.sizePerVertex * 4 : 0;
+    if (declaredStride && declaredStride !== byteCursor){
+      console.warn('[zf3d] surface "' + surface.id + '": declared sizePerVertex implies ' +
+        declaredStride + ' bytes/vertex but the inputs/formats list computes to ' + byteCursor +
+        ' bytes/vertex. Using the computed value — if the model still looks wrong, the mismatch ' +
+        'points at a format token that needs fixing above.');
+    }
+    const byteStride = byteCursor || declaredStride;
+    if (!byteStride) return null;
+
+    const vertexCount = Math.floor(arrayBuffer.byteLength / byteStride);
+    const dv = new DataView(arrayBuffer);
 
     function extract(name){
       const spec = layout[name];
       if (!spec) return null;
-      const arr = new Float32Array(vertexCount * spec.size);
+      const out = new Float32Array(vertexCount * spec.count);
       for (let i = 0; i < vertexCount; i++){
-        const base = i * stride + spec.offset;
-        for (let c = 0; c < spec.size; c++){
-          arr[i * spec.size + c] = floats[base + c];
+        const base = i * byteStride + spec.byteOffset;
+        for (let c = 0; c < spec.count; c++){
+          out[i * spec.count + c] = spec.read(dv, base + c * spec.bytes);
         }
       }
-      return arr;
+      return out;
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -507,10 +570,51 @@
     if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 
     const color = extract('COLOR');
-    if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].size));
+    if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].count));
+
+    // skinning data, if this surface declares it
+    const skinIdxName = surface.inputs.includes('SKININDEX') ? 'SKININDEX' : (surface.inputs.includes('BLENDINDICES') ? 'BLENDINDICES' : null);
+    const skinWtName  = surface.inputs.includes('SKINWEIGHT') ? 'SKINWEIGHT' : (surface.inputs.includes('BLENDWEIGHT') ? 'BLENDWEIGHT' : null);
+    let hasSkin = false;
+    if (skinIdxName && skinWtName){
+      const skinIndex = extract(skinIdxName);
+      const skinWeight = extract(skinWtName);
+      if (skinIndex && skinWeight){
+        geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex, layout[skinIdxName].count));
+        geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, layout[skinWtName].count));
+        hasSkin = true;
+      }
+    }
 
     if (!norm) geometry.computeVertexNormals();
+    geometry.userData.hasSkin = hasSkin;
     return geometry;
+  }
+
+  // ---- texture UV offset/scale (atlas tiling) ------------------------
+  // The old code only pulled the map id out of <sampler>/<filter> and
+  // dropped any tiling/offset attributes on the floor, which is a very
+  // plausible cause of "textures wrongly offset": the raw mesh UVs are
+  // fine, but the material applies an additional atlas offset/scale on
+  // top that never made it to the three.js texture. This probes a
+  // handful of common attribute-naming conventions defensively and
+  // logs whatever it finds so the exact schema can be confirmed against
+  // a real file.
+  function parseSamplerUV(samplerEl){
+    if (!samplerEl) return null;
+    const get = (names, fallback) => {
+      for (const n of names){
+        const v = samplerEl.getAttribute(n);
+        if (v !== null && v !== '' && !isNaN(parseFloat(v))) return parseFloat(v);
+      }
+      return fallback;
+    };
+    const uOffset = get(['uOffset','offsetU','uOffs','offsetX','tx'], 0);
+    const vOffset = get(['vOffset','offsetV','vOffs','offsetY','ty'], 0);
+    const uScale  = get(['uScale','scaleU','uTiling','tilingU','repeatU','sx'], 1);
+    const vScale  = get(['vScale','scaleV','vTiling','tilingV','repeatV','sy'], 1);
+    if (uOffset === 0 && vOffset === 0 && uScale === 1 && vScale === 1) return null;
+    return { uOffset, vOffset, uScale, vScale };
   }
 
   async function parseZf3d(file){
@@ -563,19 +667,28 @@
       });
     }
 
-    // filters -> which map id they sample
+    // filters -> which map id they sample, plus any UV offset/scale
     const filtersById = {};
     const filtersParent = root.querySelector(':scope > filters');
     if (filtersParent){
       filtersParent.querySelectorAll(':scope > filter').forEach(el => {
         const sampler = el.querySelector('sampler[map]');
         filtersById[el.getAttribute('id')] = {
-          mapId: sampler ? sampler.getAttribute('map') : null
+          mapId: sampler ? sampler.getAttribute('map') : null,
+          uv: parseSamplerUV(sampler) || parseSamplerUV(el),
         };
       });
+      // one-time diagnostic: dump the raw attributes of the first sampler
+      // so the real offset/scale attribute names can be confirmed.
+      const firstSampler = filtersParent.querySelector('sampler');
+      if (firstSampler){
+        const attrs = {};
+        Array.from(firstSampler.attributes).forEach(a => { attrs[a.name] = a.value; });
+        console.info('[zf3d] first <sampler> attributes (for confirming UV offset/scale attribute names):', attrs);
+      }
     }
 
-    // materials -> resolved texture map id
+    // materials -> resolved texture map id + uv transform
     const materialDefs = {};
     const materialsParent = root.querySelector(':scope > materials');
     if (materialsParent){
@@ -583,19 +696,21 @@
         const shader = el.querySelector('shader');
         const filterIds = shader && shader.getAttribute('filters') ? shader.getAttribute('filters').split(',') : [];
         let mapId = null;
+        let uv = null;
         for (const fid of filterIds){
-          if (filtersById[fid] && filtersById[fid].mapId){ mapId = filtersById[fid].mapId; break; }
+          if (filtersById[fid] && filtersById[fid].mapId){ mapId = filtersById[fid].mapId; uv = filtersById[fid].uv; break; }
         }
         materialDefs[el.getAttribute('id')] = {
           name: el.getAttribute('name'),
           twoSided: el.getAttribute('twoSided') === 'true',
           transparent: el.getAttribute('transparent') === 'true',
-          mapId
+          mapId,
+          uv,
         };
       });
     }
 
-    // gather which surfaces / maps are actually referenced by mesh nodes
+    // nodes: gather which surfaces / maps are actually referenced by mesh nodes
     const meshNodeEls = Array.from(root.querySelectorAll('nodes node[type="mesh"]'));
     const neededSurfaceIds = new Set();
     const neededMaterialIds = new Set();
@@ -618,15 +733,14 @@
       triangleTotal += surface.numTriangles;
     }));
 
-    // load textures for needed materials
-    const textureCache = {};
-    const usedMapIds = new Set();
-    neededMaterialIds.forEach(mid => {
+    // load textures for needed materials (materials, not maps, since UV
+    // transform is per-material — a texture reused by two materials with
+    // different offsets needs two Texture instances, not a shared one)
+    const textureCache = {}; // keyed by materialId now, not mapId
+    await Promise.all(Array.from(neededMaterialIds).map(async (mid) => {
       const def = materialDefs[mid];
-      if (def && def.mapId) usedMapIds.add(def.mapId);
-    });
-    await Promise.all(Array.from(usedMapIds).map(async (mapId) => {
-      const mapDef = mapsById[mapId];
+      if (!def || !def.mapId) return;
+      const mapDef = mapsById[def.mapId];
       if (!mapDef || !mapDef.source) return;
       const entry = zip.file(mapDef.source);
       if (!entry) return;
@@ -637,7 +751,18 @@
       });
       tex.encoding = THREE.sRGBEncoding;
       tex.flipY = true;
-      textureCache[mapId] = tex;
+      // Previously wrap mode was left at the three.js default
+      // (ClampToEdgeWrapping). Any UV data outside [0,1] — common for
+      // tiling/atlas surfaces — would smear the edge pixel instead of
+      // repeating, which reads as a misaligned/offset texture.
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      if (def.uv){
+        tex.repeat.set(def.uv.uScale, def.uv.vScale);
+        tex.offset.set(def.uv.uOffset, def.uv.vOffset);
+      }
+      tex.needsUpdate = true;
+      textureCache[mid] = tex;
     }));
 
     // build three.js materials
@@ -645,8 +770,8 @@
     neededMaterialIds.forEach(mid => {
       const def = materialDefs[mid] || {};
       materialCache[mid] = new THREE.MeshStandardMaterial({
-        map: def.mapId ? textureCache[def.mapId] : null,
-        color: def.mapId ? 0xffffff : 0xb8b6a8,
+        map: textureCache[mid] || null,
+        color: textureCache[mid] ? 0xffffff : 0xb8b6a8,
         side: def.twoSided ? THREE.DoubleSide : THREE.FrontSide,
         transparent: !!def.transparent,
         roughness: 0.85,
@@ -655,35 +780,68 @@
     });
     const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x8a8672, roughness: 0.9 });
 
-    // walk node tree
+    // walk node tree, building THREE.Bone for bone nodes so a real
+    // skeleton can be assembled afterwards (previously bones were only
+    // *counted*, never linked into anything skinning could use)
     const group = new THREE.Group();
     let nodeCount = 0;
     let meshCount = 0;
     let boneCount = 0;
+    let skinnedCount = 0;
+    const bonesById = {};
+    const bonesInOrder = [];
+    const skinnedMeshQueue = []; // { mesh, boneIdsAttr }
 
     function walk(el, parent){
       nodeCount++;
       const type = el.getAttribute('type');
-      const node = new THREE.Group();
-      node.name = el.getAttribute('name') || el.getAttribute('id') || '';
+      const id = el.getAttribute('id');
+      const name = el.getAttribute('name') || id || '';
+      const isBone = type === 'bone' || /^bn_|_bn_/i.test(name);
+
+      const node = isBone ? new THREE.Bone() : new THREE.Group();
+      node.name = name;
       node.matrix.copy(parseTransform(el.getAttribute('transform')));
       node.matrixAutoUpdate = false;
       node.visible = el.getAttribute('visible') !== 'false';
       parent.add(node);
 
-      if (type === 'bone' || /^bn_|_bn_/.test(node.name)) boneCount++;
+      if (isBone){
+        boneCount++;
+        bonesInOrder.push(node);
+        if (id) bonesById[id] = node;
+        bonesById[name] = node;
+      }
 
       if (type === 'mesh'){
         const surfaceIds = (el.getAttribute('surfaces') || '').split(',').filter(Boolean);
         const materialIds = (el.getAttribute('materials') || '').split(',').filter(Boolean);
+        // best-effort: an explicit "bones" attribute on the mesh node,
+        // comma-separated ids, giving the skinIndex -> bone mapping.
+        // If absent, this falls back to every bone found in the model
+        // (in document order) — flagged in the console since it's a guess.
+        const boneIdsAttr = (el.getAttribute('bones') || '').split(',').filter(Boolean);
+
         surfaceIds.forEach((sid, idx) => {
           const geometry = geometryCache[sid];
           if (!geometry) return;
           const mat = materialCache[materialIds[idx]] || fallbackMaterial;
-          const mesh = new THREE.Mesh(geometry, mat.clone());
-          mesh.name = (surfacesById[sid] && surfacesById[sid].name) || sid;
-          node.add(mesh);
-          meshCount++;
+          const meshName = (surfacesById[sid] && surfacesById[sid].name) || sid;
+
+          if (geometry.userData.hasSkin){
+            const mesh = new THREE.SkinnedMesh(geometry, mat.clone());
+            mesh.name = meshName;
+            mesh.frustumCulled = false;
+            node.add(mesh);
+            meshCount++;
+            skinnedCount++;
+            skinnedMeshQueue.push({ mesh, boneIdsAttr });
+          } else {
+            const mesh = new THREE.Mesh(geometry, mat.clone());
+            mesh.name = meshName;
+            node.add(mesh);
+            meshCount++;
+          }
         });
       }
 
@@ -699,10 +857,66 @@
       });
     }
 
-    const hasAnimation = !!root.querySelector('animations > *');
+    // bind skeletons now that the full node hierarchy (and every bone's
+    // world matrix) exists
+    if (skinnedMeshQueue.length){
+      group.updateMatrixWorld(true);
+      skinnedMeshQueue.forEach(({ mesh, boneIdsAttr }) => {
+        let bones = boneIdsAttr.map(id => bonesById[id]).filter(Boolean);
+        if (!bones.length){
+          if (boneIdsAttr.length){
+            console.warn('[zf3d] mesh "' + mesh.name + '" declared bones="' + boneIdsAttr.join(',') +
+              '" but none of those ids matched a bone node — falling back to all ' +
+              bonesInOrder.length + ' bones in document order. Skinning may be visually wrong ' +
+              'until the real index-to-bone mapping is confirmed.');
+          } else {
+            console.warn('[zf3d] mesh "' + mesh.name + '" has skin weights but no "bones" attribute ' +
+              'was found on its node — falling back to all ' + bonesInOrder.length +
+              ' bones in document order as a guess for the skinIndex mapping.');
+          }
+          bones = bonesInOrder;
+        }
+        if (!bones.length){
+          console.warn('[zf3d] mesh "' + mesh.name + '" has skin weights but no bones exist in the model — skipping bind.');
+          return;
+        }
+        const skeleton = new THREE.Skeleton(bones);
+        mesh.bind(skeleton, mesh.matrixWorld);
+      });
+    }
+
+    // ---- animation ----------------------------------------------------
+    // The old code never loaded the .animation file at all. Its exact
+    // schema hasn't been confirmed against a real sample yet, so this
+    // reuses the one convention we *do* know for certain — the same
+    // comma-separated 12-value transform string used by <node transform>
+    // elsewhere in this format — on the assumption that a keyframe is
+    // just "a transform at a time". If a given file's .animation uses a
+    // different schema, nothing will crash: hasAnimation will still
+    // report correctly, no clip will be built, and the raw text is
+    // logged to the console so the real schema can be confirmed and
+    // this parser adjusted.
+    let animClip = null;
+    const animEntry = zip.file(/\.animation$/i);
+    const animFile = animEntry && animEntry[0];
+    if (animFile){
+      try {
+        const animText = await animFile.async('text');
+        animClip = parseAnimationXML(animText, bonesById);
+        if (!animClip){
+          console.info('[zf3d] found a .animation file (' + animFile.name + ') but could not recognize its ' +
+            'structure. First 1000 chars logged below for reference:\n' + animText.slice(0, 1000));
+        }
+      } catch (animErr){
+        console.warn('[zf3d] failed to read .animation file:', animErr);
+      }
+    }
+
+    const hasAnimationTag = !!root.querySelector('animations > *');
 
     return {
       group,
+      clip: animClip,
       stats: {
         nodeCount,
         meshCount,
@@ -710,9 +924,83 @@
         materialCount: neededMaterialIds.size,
         triangleTotal,
         boneCount,
-        hasAnimation,
+        skinnedCount,
+        hasAnimationTag,
+        hasAnimationFile: !!animFile,
+        hasPlayableClip: !!animClip,
       }
     };
+  }
+
+  // Best-effort .animation parser. Looks for elements carrying both a
+  // time-like attribute ("time" or "t") and a transform-like attribute
+  // ("transform", reusing the node-transform format), grouped under
+  // whichever ancestor/self carries a bone-identifying attribute
+  // ("bone", "node", "target", or "id"). Builds one THREE.AnimationClip
+  // with position/quaternion/scale tracks per matched bone.
+  function parseAnimationXML(text, bonesById){
+    let doc;
+    try {
+      doc = new DOMParser().parseFromString(text, 'application/xml');
+    } catch (e){ return null; }
+    if (!doc || doc.querySelector('parsererror')) return null;
+
+    const keyEls = Array.from(doc.querySelectorAll('*')).filter(el =>
+      (el.hasAttribute('time') || el.hasAttribute('t')) && el.hasAttribute('transform')
+    );
+    if (!keyEls.length) return null;
+
+    // group keyframes by the nearest bone-identifying attribute
+    const tracksByBone = {};
+    keyEls.forEach(el => {
+      let owner = el;
+      let boneId = null;
+      while (owner && !boneId){
+        boneId = owner.getAttribute('bone') || owner.getAttribute('node') ||
+                 owner.getAttribute('target') || (owner !== el ? owner.getAttribute('id') : null);
+        if (boneId) break;
+        owner = owner.parentElement;
+      }
+      if (!boneId) return;
+      const bone = bonesById[boneId];
+      if (!bone) return;
+      const time = parseFloat(el.getAttribute('time') !== null ? el.getAttribute('time') : el.getAttribute('t'));
+      if (isNaN(time)) return;
+      const m = parseTransform(el.getAttribute('transform'));
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      m.decompose(pos, quat, scl);
+      if (!tracksByBone[boneId]) tracksByBone[boneId] = { bone, keys: [] };
+      tracksByBone[boneId].keys.push({ time, pos, quat, scl });
+    });
+
+    const boneIds = Object.keys(tracksByBone);
+    if (!boneIds.length) return null;
+
+    const tracks = [];
+    let maxTime = 0;
+    boneIds.forEach(bid => {
+      const { bone, keys } = tracksByBone[bid];
+      keys.sort((a, b) => a.time - b.time);
+      const times = keys.map(k => k.time);
+      maxTime = Math.max(maxTime, times[times.length - 1] || 0);
+      const posValues = [];
+      const quatValues = [];
+      const sclValues = [];
+      keys.forEach(k => {
+        posValues.push(k.pos.x, k.pos.y, k.pos.z);
+        quatValues.push(k.quat.x, k.quat.y, k.quat.z, k.quat.w);
+        sclValues.push(k.scl.x, k.scl.y, k.scl.z);
+      });
+      const path = bone.name || bid;
+      tracks.push(new THREE.VectorKeyframeTrack(path + '.position', times, posValues));
+      tracks.push(new THREE.QuaternionKeyframeTrack(path + '.quaternion', times, quatValues));
+      tracks.push(new THREE.VectorKeyframeTrack(path + '.scale', times, sclValues));
+    });
+
+    if (!tracks.length) return null;
+    return new THREE.AnimationClip('zf3d_animation', maxTime, tracks);
   }
 
   function frameCamera(object3d){
@@ -725,7 +1013,6 @@
     box.getCenter(center);
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
     const dist = maxDim * 1.6 / Math.tan((camera.fov * Math.PI/180) / 2);
-
     camera.position.set(
       center.x + dist * 0.55,
       center.y + dist * 0.4,
@@ -734,10 +1021,8 @@
     camera.near = Math.max(maxDim / 500, 0.001);
     camera.far = maxDim * 50;
     camera.updateProjectionMatrix();
-
     controls.target.copy(center);
     controls.update();
-
     grid.position.y = box.min.y;
     const gridScale = Math.max(maxDim * 2, 4) / 40;
     grid.scale.set(gridScale, 1, gridScale);
@@ -749,29 +1034,43 @@
       return;
     }
     if (!/\.zf3d$/i.test(file.name)){
-      // Some mobile pickers / share sheets strip or mangle the extension.
-      // Don't block — just warn and still attempt to parse it as a zip.
       console.warn('file name does not end in .zf3d, attempting to parse anyway:', file.name);
     }
+
     showStatus('PARSING ' + (file.name || 'FILE').toUpperCase() + '…');
+
     try {
       const result = await parseZf3d(file);
 
       if (modelRoot){
         scene.remove(modelRoot);
         modelRoot.traverse(o => {
-          if (o.isMesh){
+          if (o.isMesh || o.isSkinnedMesh){
             o.geometry.dispose();
             if (o.material.map) o.material.map.dispose();
             o.material.dispose();
           }
         });
       }
+      mixer = null;
+      animAction = null;
+      animPlaying = false;
+      btnAnim.classList.remove('active');
+      btnAnim.textContent = '▶ PLAY ANIM';
+      btnAnim.disabled = true;
 
       modelRoot = result.group;
-      modelRoot.traverse(o => { if (o.isMesh) o.material.wireframe = wireframeOn; });
+      modelRoot.traverse(o => { if (o.isMesh || o.isSkinnedMesh) o.material.wireframe = wireframeOn; });
       scene.add(modelRoot);
       frameCamera(modelRoot);
+
+      if (result.clip){
+        mixer = new THREE.AnimationMixer(modelRoot);
+        animAction = mixer.clipAction(result.clip);
+        animAction.play();
+        animAction.paused = true; // start paused; user presses play
+        btnAnim.disabled = false;
+      }
 
       dropzone.style.display = 'none';
       hud.classList.add('visible');
@@ -781,7 +1080,19 @@
       document.getElementById('hudTris').textContent = result.stats.triangleTotal.toLocaleString();
       document.getElementById('hudMats').textContent = result.stats.materialCount;
       document.getElementById('hudBones').textContent = result.stats.boneCount;
-      document.getElementById('hudAnim').textContent = result.stats.hasAnimation ? 'present' : 'none (bind pose)';
+      document.getElementById('hudSkinned').textContent = result.stats.skinnedCount;
+
+      let animLabel = 'none';
+      if (result.stats.hasPlayableClip){
+        animLabel = 'present (' + result.clip.duration.toFixed(2) + 's, playable)';
+      } else if (result.stats.hasAnimationFile){
+        animLabel = 'present (format unrecognized — see console)';
+      } else if (result.stats.hasAnimationTag){
+        animLabel = 'present (bind pose only)';
+      } else {
+        animLabel = 'none (bind pose)';
+      }
+      document.getElementById('hudAnim').textContent = animLabel;
 
       hideStatus();
     } catch (err){
