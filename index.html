@@ -8,34 +8,27 @@
 </head>
 <body>
 
-  <div class="app-container">
-    <!-- UI Controls Panel -->
-    <div class="ui-panel">
-      <h3>ZF3D Viewer</h3>
-      <div class="ui-row"><span>Status:</span> <span id="status">Idle</span></div>
-      <div class="ui-row"><span>Vertices:</span> <span id="vertexCount">0</span></div>
-      <div class="ui-row"><span>Faces:</span> <span id="faceCount">0</span></div>
-      <div class="ui-row"><span>Bones:</span> <span id="boneCount">0</span></div>
-      
-      <div class="ui-row" style="margin-top: 10px;">
-        <label><input type="checkbox" id="wireframeToggle"> Wireframe</label>
-        <label><input type="checkbox" id="autoRotateToggle"> Auto Rotate</label>
-      </div>
-      
-      <button class="ui-button" id="resetCamBtn">Reset Camera</button>
-      <input type="file" id="fileInput" style="display: none;" accept=".zip">
-      <button class="ui-button" style="background: #27272a;" onclick="document.getElementById('fileInput').click()">Open Archive</button>
-    </div>
-
-    <!-- 3D Viewport -->
-    <div id="viewport">
-      <div id="dropZone">
-        <p style="color: #9ca3af; font-size: 12px;">Drop .zip container here</p>
-      </div>
-    </div>
+  <div id="viewport">
+    <div id="dropZone"></div>
   </div>
 
-  <!-- Three.js & JSZip Import Maps / Scripts -->
+  <div class="ui-panel">
+    <h2>ZF3D Viewer</h2>
+    <div class="ui-row"><span>Status:</span> <span id="status">Idle</span></div>
+    <div class="ui-row"><span>Vertices:</span> <span id="vertexCount">0</span></div>
+    <div class="ui-row"><span>Faces:</span> <span id="faceCount">0</span></div>
+    <div class="ui-row"><span>Bones:</span> <span id="boneCount">0</span></div>
+    
+    <div class="ui-toggles">
+      <label><input type="checkbox" id="wireframeToggle"> Wireframe</label>
+      <label><input type="checkbox" id="autoRotateToggle"> Auto Rotate</label>
+    </div>
+
+    <button id="resetCamBtn" class="ui-btn">Reset Camera</button>
+    <input type="file" id="fileInput" accept=".zip" style="display: none;">
+    <button class="ui-btn" onclick="document.getElementById('fileInput').click()">Open Archive</button>
+  </div>
+
   <script type="importmap">
     {
       "imports": {
