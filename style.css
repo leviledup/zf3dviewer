@@ -1,160 +1,119 @@
-
+/* Reset & Base Layout */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-body, html {
+html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #0f0f12;
-  color: #e0e0e0;
+  background-color: #0b0b0e;
+  color: #f3f4f6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-#app {
+/* App Wrapper */
+.app-container {
   display: flex;
   width: 100vw;
   height: 100vh;
-}
-
-/* Sidebar Styling */
-.sidebar {
-  width: 320px;
-  background: #18181c;
-  border-right: 1px solid #2a2a30;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  z-index: 10;
-}
-
-.sidebar h2 {
-  font-size: 1.25rem;
-  color: #fff;
-  letter-spacing: 0.5px;
-}
-
-/* Drag and Drop Box */
-.drop-zone {
-  border: 2px dashed #3a3a45;
-  border-radius: 8px;
-  padding: 24px 16px;
-  text-align: center;
-  background: #121215;
-  transition: all 0.2s ease;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.drop-zone.dragover {
-  border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.05);
-}
-
-.drop-zone p {
-  font-size: 0.85rem;
-  color: #a0a0ab;
-}
-
-.drop-zone span {
-  font-size: 0.75rem;
-  color: #60606a;
-}
-
-/* Buttons & Inputs */
-.btn {
-  background: #6366f1;
-  color: #fff;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition: background 0.2s;
-}
-
-.btn:hover {
-  background: #4f46e5;
-}
-
-.btn.secondary {
-  background: #2a2a32;
-  color: #ccc;
-}
-
-.btn.secondary:hover {
-  background: #3a3a42;
-}
-
-/* Info and Control Panels */
-.info-panel, .controls-panel {
-  background: #121215;
-  border: 1px solid #222228;
-  border-radius: 6px;
-  padding: 14px;
-}
-
-.info-panel h3 {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  color: #70707b;
-  margin-bottom: 10px;
-}
-
-.info-panel ul {
-  list-style: none;
-  font-size: 0.85rem;
-}
-
-.info-panel li {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  color: #aaa;
-}
-
-.info-panel span {
-  color: #fff;
-  font-weight: 600;
-}
-
-.controls-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  font-size: 0.85rem;
-}
-
-.controls-panel label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-/* 3D Viewport */
-.viewport {
-  flex: 1;
-  height: 100%;
   position: relative;
 }
 
-@media (max-width: 768px) {
-  #app {
-    flex-direction: column-reverse;
-  }
-  .sidebar {
-    width: 100%;
-    height: 40%;
-  }
-  .viewport {
-    height: 60%;
-  }
+/* Main Viewport Container - Fixes canvas disappearance */
+#viewport {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: #0f0f12;
+}
+
+/* Ensure Three.js Canvas Fills Container Properly */
+#viewport canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Drop Zone Overlay for File Loading */
+#dropZone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 2px dashed rgba(99, 102, 241, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 15, 18, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+#dropZone.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* UI Controls Panel Overlay */
+.ui-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(20, 20, 28, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  padding: 14px;
+  border-radius: 8px;
+  width: 260px;
+  z-index: 100;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+.ui-panel h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #818cf8;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 6px;
+}
+
+.ui-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.ui-row span:last-child {
+  color: #9ca3af;
+}
+
+.ui-button {
+  width: 100%;
+  background: #4f46e5;
+  color: white;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: background 0.2s;
+}
+
+.ui-button:hover {
+  background: #4338ca;
 }
