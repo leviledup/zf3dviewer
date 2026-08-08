@@ -592,29 +592,45 @@
   }
 
   // ---- texture UV offset/scale (atlas tiling) ------------------------
-  // The old code only pulled the map id out of <sampler>/<filter> and
-  // dropped any tiling/offset attributes on the floor, which is a very
-  // plausible cause of "textures wrongly offset": the raw mesh UVs are
-  // fine, but the material applies an additional atlas offset/scale on
-  // top that never made it to the three.js texture. This probes a
-  // handful of common attribute-naming conventions defensively and
-  // logs whatever it finds so the exact schema can be confirmed against
-  // a real file.
-  function parseSamplerUV(samplerEl){
-    if (!samplerEl) return null;
-    const get = (names, fallback) => {
-      for (const n of names){
-        const v = samplerEl.getAttribute(n);
-        if (v !== null && v !== '' && !isNaN(parseFloat(v))) return parseFloat(v);
-      }
-      return fallback;
+  // Confirmed against a real .zf3d: offset/repeat are NOT attributes on
+  // <sampler> — they're child elements of <filter>:
+  //   <filter ...>
+  //     <param name="repeat" format="float2" value="1,1"/>
+  //     <param name="offset" format="float2" value="0,0"/>
+  //     <sampler name="texture" type="2d" map="8" wrap="1" .../>
+  //   </filter>
+  // The previous version looked for attributes on the wrong element
+  // entirely, so any file with non-default offset/repeat would silently
+  // render with the texture in the wrong place. This reads the actual
+  // <param> elements instead.
+  function parseFilterUV(filterEl){
+    if (!filterEl) return null;
+    const getParam = (name) => {
+      const p = filterEl.querySelector('param[name="' + name + '"]');
+      if (!p) return null;
+      const v = (p.getAttribute('value') || '').split(',').map(Number);
+      return (v.length >= 2 && !v.some(isNaN)) ? v : null;
     };
-    const uOffset = get(['uOffset','offsetU','uOffs','offsetX','tx'], 0);
-    const vOffset = get(['vOffset','offsetV','vOffs','offsetY','ty'], 0);
-    const uScale  = get(['uScale','scaleU','uTiling','tilingU','repeatU','sx'], 1);
-    const vScale  = get(['vScale','scaleV','vTiling','tilingV','repeatV','sy'], 1);
-    if (uOffset === 0 && vOffset === 0 && uScale === 1 && vScale === 1) return null;
-    return { uOffset, vOffset, uScale, vScale };
+    const offset = getParam('offset');
+    const repeat = getParam('repeat');
+    if (!offset && !repeat) return null;
+    return {
+      uOffset: offset ? offset[0] : 0,
+      vOffset: offset ? offset[1] : 0,
+      uScale: repeat ? repeat[0] : 1,
+      vScale: repeat ? repeat[1] : 1,
+    };
+  }
+
+  // <sampler wrap="0|1|2"> — read from data instead of hardcoding, since
+  // a model can legitimately want clamped (non-tiling) textures.
+  // 0 = clamp, 1 = repeat, 2 = mirrored-repeat (best-effort guess for 2;
+  // 0 and 1 are confirmed against a real sampler element).
+  function wrapModeFromSampler(samplerEl){
+    const w = samplerEl ? samplerEl.getAttribute('wrap') : null;
+    if (w === '0') return THREE.ClampToEdgeWrapping;
+    if (w === '2') return THREE.MirroredRepeatWrapping;
+    return THREE.RepeatWrapping; // default / w === '1'
   }
 
   async function parseZf3d(file){
@@ -642,6 +658,20 @@
     const root = xmlDoc.documentElement;
 
     // surfaces (geometry descriptors)
+    // top-level <animations> list: animation id -> which .animation file
+    // to load (confirmed format: raw sequential float3x4 matrices, see
+    // loadNodeAnimations below).
+    const animationDefsById = {};
+    const animationsParent = root.querySelector(':scope > animations');
+    if (animationsParent){
+      animationsParent.querySelectorAll(':scope > animation').forEach(el => {
+        animationDefsById[el.getAttribute('id')] = {
+          source: el.getAttribute('source'),
+          format: el.getAttribute('format') || 'float3x4',
+        };
+      });
+    }
+
     const surfacesById = {};
     const surfacesParent = root.querySelector(':scope > surfaces');
     if (surfacesParent){
@@ -675,17 +705,10 @@
         const sampler = el.querySelector('sampler[map]');
         filtersById[el.getAttribute('id')] = {
           mapId: sampler ? sampler.getAttribute('map') : null,
-          uv: parseSamplerUV(sampler) || parseSamplerUV(el),
+          uv: parseFilterUV(el),
+          wrap: wrapModeFromSampler(sampler),
         };
       });
-      // one-time diagnostic: dump the raw attributes of the first sampler
-      // so the real offset/scale attribute names can be confirmed.
-      const firstSampler = filtersParent.querySelector('sampler');
-      if (firstSampler){
-        const attrs = {};
-        Array.from(firstSampler.attributes).forEach(a => { attrs[a.name] = a.value; });
-        console.info('[zf3d] first <sampler> attributes (for confirming UV offset/scale attribute names):', attrs);
-      }
     }
 
     // materials -> resolved texture map id + uv transform
@@ -697,8 +720,14 @@
         const filterIds = shader && shader.getAttribute('filters') ? shader.getAttribute('filters').split(',') : [];
         let mapId = null;
         let uv = null;
+        let wrap = THREE.RepeatWrapping;
         for (const fid of filterIds){
-          if (filtersById[fid] && filtersById[fid].mapId){ mapId = filtersById[fid].mapId; uv = filtersById[fid].uv; break; }
+          if (filtersById[fid] && filtersById[fid].mapId){
+            mapId = filtersById[fid].mapId;
+            uv = filtersById[fid].uv;
+            wrap = filtersById[fid].wrap;
+            break;
+          }
         }
         materialDefs[el.getAttribute('id')] = {
           name: el.getAttribute('name'),
@@ -706,6 +735,7 @@
           transparent: el.getAttribute('transparent') === 'true',
           mapId,
           uv,
+          wrap,
         };
       });
     }
@@ -751,12 +781,11 @@
       });
       tex.encoding = THREE.sRGBEncoding;
       tex.flipY = true;
-      // Previously wrap mode was left at the three.js default
-      // (ClampToEdgeWrapping). Any UV data outside [0,1] — common for
-      // tiling/atlas surfaces — would smear the edge pixel instead of
-      // repeating, which reads as a misaligned/offset texture.
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.RepeatWrapping;
+      // Wrap mode now comes from the sampler's actual wrap="" attribute
+      // (see wrapModeFromSampler) instead of being hardcoded — a model
+      // can legitimately want clamped, non-tiling textures.
+      tex.wrapS = def.wrap;
+      tex.wrapT = def.wrap;
       if (def.uv){
         tex.repeat.set(def.uv.uScale, def.uv.vScale);
         tex.offset.set(def.uv.uOffset, def.uv.vOffset);
@@ -791,13 +820,19 @@
     const bonesById = {};
     const bonesInOrder = [];
     const skinnedMeshQueue = []; // { mesh, boneIdsAttr }
+    const animatedNodes = [];    // { node, animId, frameSpeed } — rigid pivot-chain animation
 
     function walk(el, parent){
       nodeCount++;
       const type = el.getAttribute('type');
       const id = el.getAttribute('id');
       const name = el.getAttribute('name') || id || '';
-      const isBone = type === 'bone' || /^bn_|_bn_/i.test(name);
+      // "bone" here means real per-vertex skinning (type="bone" + a
+      // SKININDEX/SKINWEIGHT surface elsewhere) — confirmed against a
+      // real file that this is NOT how simple rigid pivot-chain
+      // animation (e.g. "Bone001" named *pivot* nodes) is marked, so the
+      // name-based heuristic below only matters for true skinned models.
+      const isBone = type === 'bone';
 
       const node = isBone ? new THREE.Bone() : new THREE.Group();
       node.name = name;
@@ -811,6 +846,15 @@
         bonesInOrder.push(node);
         if (id) bonesById[id] = node;
         bonesById[name] = node;
+      }
+
+      const animId = el.getAttribute('animation');
+      if (animId){
+        animatedNodes.push({
+          node,
+          animId,
+          frameSpeed: parseFloat(el.getAttribute('frameSpeed')) || 1,
+        });
       }
 
       if (type === 'mesh'){
@@ -886,33 +930,23 @@
     }
 
     // ---- animation ----------------------------------------------------
-    // The old code never loaded the .animation file at all. Its exact
-    // schema hasn't been confirmed against a real sample yet, so this
-    // reuses the one convention we *do* know for certain — the same
-    // comma-separated 12-value transform string used by <node transform>
-    // elsewhere in this format — on the assumption that a keyframe is
-    // just "a transform at a time". If a given file's .animation uses a
-    // different schema, nothing will crash: hasAnimation will still
-    // report correctly, no clip will be built, and the raw text is
-    // logged to the console so the real schema can be confirmed and
-    // this parser adjusted.
-    let animClip = null;
-    const animEntry = zip.file(/\.animation$/i);
-    const animFile = animEntry && animEntry[0];
-    if (animFile){
-      try {
-        const animText = await animFile.async('text');
-        animClip = parseAnimationXML(animText, bonesById);
-        if (!animClip){
-          console.info('[zf3d] found a .animation file (' + animFile.name + ') but could not recognize its ' +
-            'structure. First 1000 chars logged below for reference:\n' + animText.slice(0, 1000));
-        }
-      } catch (animErr){
-        console.warn('[zf3d] failed to read .animation file:', animErr);
-      }
-    }
-
-    const hasAnimationTag = !!root.querySelector('animations > *');
+    // Confirmed against a real .zf3d + .animation pair: each animated
+    // node has an animation="<id>" attribute pointing at
+    // <animations><animation id source format="float3x4">, and that
+    // node's <source>.animation file in the zip is a raw, back-to-back
+    // sequence of 3x4 matrices (12 floats / 48 bytes each, no header, no
+    // per-frame timestamp) — the exact same 12-value encoding used by
+    // the transform="" attribute elsewhere in this format. Verified by
+    // decoding a sample file: frame 0 of "2.animation" matches node
+    // id=1's static transform="" exactly, and the file is exactly
+    // (byteLength / 48) whole frames.
+    //
+    // This is RIGID hierarchical animation (each pivot's local transform
+    // is replaced frame-by-frame), not per-vertex skinning — there's no
+    // header specifying a playback frame rate, so ANIMATION_FPS below is
+    // an assumption. If playback looks too fast/slow, adjust it; the
+    // console logs frame count so it's easy to sanity-check.
+    const animClip = await loadNodeAnimations(zip, animationDefsById, animatedNodes);
 
     return {
       group,
@@ -925,82 +959,71 @@
         triangleTotal,
         boneCount,
         skinnedCount,
-        hasAnimationTag,
-        hasAnimationFile: !!animFile,
+        animatedNodeCount: animatedNodes.length,
         hasPlayableClip: !!animClip,
       }
     };
   }
 
-  // Best-effort .animation parser. Looks for elements carrying both a
-  // time-like attribute ("time" or "t") and a transform-like attribute
-  // ("transform", reusing the node-transform format), grouped under
-  // whichever ancestor/self carries a bone-identifying attribute
-  // ("bone", "node", "target", or "id"). Builds one THREE.AnimationClip
-  // with position/quaternion/scale tracks per matched bone.
-  function parseAnimationXML(text, bonesById){
-    let doc;
-    try {
-      doc = new DOMParser().parseFromString(text, 'application/xml');
-    } catch (e){ return null; }
-    if (!doc || doc.querySelector('parsererror')) return null;
+  const ANIMATION_FPS = 30; // see comment above — not encoded in the format, adjust if playback speed is off
 
-    const keyEls = Array.from(doc.querySelectorAll('*')).filter(el =>
-      (el.hasAttribute('time') || el.hasAttribute('t')) && el.hasAttribute('transform')
-    );
-    if (!keyEls.length) return null;
-
-    // group keyframes by the nearest bone-identifying attribute
-    const tracksByBone = {};
-    keyEls.forEach(el => {
-      let owner = el;
-      let boneId = null;
-      while (owner && !boneId){
-        boneId = owner.getAttribute('bone') || owner.getAttribute('node') ||
-                 owner.getAttribute('target') || (owner !== el ? owner.getAttribute('id') : null);
-        if (boneId) break;
-        owner = owner.parentElement;
-      }
-      if (!boneId) return;
-      const bone = bonesById[boneId];
-      if (!bone) return;
-      const time = parseFloat(el.getAttribute('time') !== null ? el.getAttribute('time') : el.getAttribute('t'));
-      if (isNaN(time)) return;
-      const m = parseTransform(el.getAttribute('transform'));
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scl = new THREE.Vector3();
-      m.decompose(pos, quat, scl);
-      if (!tracksByBone[boneId]) tracksByBone[boneId] = { bone, keys: [] };
-      tracksByBone[boneId].keys.push({ time, pos, quat, scl });
-    });
-
-    const boneIds = Object.keys(tracksByBone);
-    if (!boneIds.length) return null;
-
+  async function loadNodeAnimations(zip, animationDefsById, animatedNodes){
+    if (!animatedNodes.length) return null;
     const tracks = [];
-    let maxTime = 0;
-    boneIds.forEach(bid => {
-      const { bone, keys } = tracksByBone[bid];
-      keys.sort((a, b) => a.time - b.time);
-      const times = keys.map(k => k.time);
-      maxTime = Math.max(maxTime, times[times.length - 1] || 0);
-      const posValues = [];
-      const quatValues = [];
-      const sclValues = [];
-      keys.forEach(k => {
-        posValues.push(k.pos.x, k.pos.y, k.pos.z);
-        quatValues.push(k.quat.x, k.quat.y, k.quat.z, k.quat.w);
-        sclValues.push(k.scl.x, k.scl.y, k.scl.z);
-      });
-      const path = bone.name || bid;
+    let maxDuration = 0;
+    const m = new THREE.Matrix4();
+
+    await Promise.all(animatedNodes.map(async ({ node, animId, frameSpeed }) => {
+      const def = animationDefsById[animId];
+      if (!def) return;
+      const entry = zip.file(def.source + '.animation');
+      if (!entry) return;
+      const buf = await entry.async('arraybuffer');
+      const floats = new Float32Array(buf);
+      const frameCount = Math.floor(floats.length / 12);
+      if (frameCount < 2) return;
+
+      const times = new Array(frameCount);
+      const posValues = new Array(frameCount * 3);
+      const quatValues = new Array(frameCount * 4);
+      const sclValues = new Array(frameCount * 3);
+      const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+
+      for (let f = 0; f < frameCount; f++){
+        const b = f * 12;
+        m.set(
+          floats[b+0], floats[b+1], floats[b+2], floats[b+9],
+          floats[b+3], floats[b+4], floats[b+5], floats[b+10],
+          floats[b+6], floats[b+7], floats[b+8], floats[b+11],
+          0, 0, 0, 1
+        );
+        m.decompose(pos, quat, scl);
+        times[f] = (f / ANIMATION_FPS) / (frameSpeed || 1);
+        posValues[f*3] = pos.x; posValues[f*3+1] = pos.y; posValues[f*3+2] = pos.z;
+        quatValues[f*4] = quat.x; quatValues[f*4+1] = quat.y; quatValues[f*4+2] = quat.z; quatValues[f*4+3] = quat.w;
+        sclValues[f*3] = scl.x; sclValues[f*3+1] = scl.y; sclValues[f*3+2] = scl.z;
+      }
+
+      maxDuration = Math.max(maxDuration, times[times.length - 1]);
+      // node names in this format can contain spaces ("IK Chain001") —
+      // three.js's track-name parser needs those wrapped in {} to bind
+      // correctly, so always brace the name rather than relying on it
+      // being a "safe" identifier.
+      const path = '{' + node.name + '}';
       tracks.push(new THREE.VectorKeyframeTrack(path + '.position', times, posValues));
       tracks.push(new THREE.QuaternionKeyframeTrack(path + '.quaternion', times, quatValues));
       tracks.push(new THREE.VectorKeyframeTrack(path + '.scale', times, sclValues));
-    });
+      // let the AnimationMixer drive this node's matrix from
+      // position/quaternion/scale each frame (static nodes stay
+      // matrixAutoUpdate=false for efficiency, see walk() above)
+      node.matrixAutoUpdate = true;
+
+      console.info('[zf3d] animation "' + def.source + '" on node "' + node.name + '": ' +
+        frameCount + ' frames @ ' + ANIMATION_FPS + 'fps assumed = ' + times[times.length-1].toFixed(2) + 's');
+    }));
 
     if (!tracks.length) return null;
-    return new THREE.AnimationClip('zf3d_animation', maxTime, tracks);
+    return new THREE.AnimationClip('zf3d_animation', maxDuration, tracks);
   }
 
   function frameCamera(object3d){
@@ -1082,15 +1105,12 @@
       document.getElementById('hudBones').textContent = result.stats.boneCount;
       document.getElementById('hudSkinned').textContent = result.stats.skinnedCount;
 
-      let animLabel = 'none';
+      let animLabel = 'none (bind pose)';
       if (result.stats.hasPlayableClip){
-        animLabel = 'present (' + result.clip.duration.toFixed(2) + 's, playable)';
-      } else if (result.stats.hasAnimationFile){
-        animLabel = 'present (format unrecognized — see console)';
-      } else if (result.stats.hasAnimationTag){
-        animLabel = 'present (bind pose only)';
-      } else {
-        animLabel = 'none (bind pose)';
+        animLabel = 'present (' + result.clip.duration.toFixed(2) + 's, ' +
+          result.stats.animatedNodeCount + ' nodes)';
+      } else if (result.stats.animatedNodeCount){
+        animLabel = 'present (failed to load — see console)';
       }
       document.getElementById('hudAnim').textContent = animLabel;
 
