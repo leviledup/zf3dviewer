@@ -36,8 +36,8 @@ const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
-debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:180px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
-debugBox.innerHTML = '<b>ZF3D Structure Inspector:</b><br/>Ready...';
+debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:150px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
+debugBox.innerHTML = '<b>ZF3D Parser:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -54,56 +54,96 @@ const fileInput = document.getElementById('fileInput');
 });
 
 dropZone.addEventListener('drop', (e) => {
-  if (e.dataTransfer.files.length) inspectFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) parseZF3D(e.dataTransfer.files[0]);
 });
 
 fileInput.addEventListener('change', (e) => {
-  if (e.target.files.length) inspectFile(e.target.files[0]);
+  if (e.target.files.length) parseZF3D(e.target.files[0]);
 });
 
-async function inspectFile(file) {
+async function parseZF3D(file) {
   try {
-    statusEl.textContent = 'Inspecting file structure...';
-    logDebug(`--- File: ${file.name} (${file.size} bytes) ---`);
+    statusEl.textContent = 'Parsing container...';
+    logDebug(`Opening: ${file.name}`);
 
     const zip = await JSZip.loadAsync(file);
     const entries = Object.keys(zip.files);
-    logDebug(`Entries found (${entries.length}): ${entries.slice(0, 5).join(', ')}...`);
-
-    // Let's look inside a .vertex file specifically
+    
     const vertexKey = entries.find(name => name.includes('.vertex') || name.endsWith('vertex'));
+    const indexKey = entries.find(name => name.includes('.index') || name.endsWith('index'));
+
     if (!vertexKey) {
-      logDebug('ERROR: No .vertex file found in archive.');
+      logDebug('ERROR: No vertex file found');
       return;
     }
 
-    const vertexBuffer = await zip.files[vertexKey].async('arraybuffer');
-    logDebug(`Inspected ${vertexKey}: ${vertexBuffer.byteLength} bytes`);
+    const vBuffer = await zip.files[vertexKey].async('arraybuffer');
+    let idxBuffer = indexKey ? await zip.files[indexKey].async('arraybuffer') : null;
 
-    // Inspect first 64 bytes as text and hex to see if there's a header
-    const headerBytes = new Uint8Array(vertexBuffer.slice(0, 64));
-    let textHeader = '';
-    let hexHeader = '';
-    for (let i = 0; i < headerBytes.length; i++) {
-      let b = headerBytes[i];
-      textHeader += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
-      hexHeader += b.toString(16).padStart(2, '0') + ' ';
+    logDebug(`Vertex buffer: ${vBuffer.byteLength} bytes`);
+
+    // Flare3D standard interleaved vertex layout usually has a stride of 8 floats (32 bytes):
+    // Pos (3 floats) + Normal/UV/Weights (5 floats) = 8 floats per vertex.
+    const STRIDE_FLOATS = 8; 
+    const floats = new Float32Array(vBuffer);
+    const totalVertices = Math.floor(floats.length / STRIDE_FLOATS);
+
+    logDebug(`Calculated vertices: ${totalVertices} (Stride: ${STRIDE_FLOATS})`);
+
+    const positions = new Float32Array(totalVertices * 3);
+    const uvs = new Float32Array(totalVertices * 2);
+
+    for (let i = 0; i < totalVertices; i++) {
+      const base = i * STRIDE_FLOATS;
+      // Position X, Y, Z
+      positions[i * 3]     = floats[base + 0];
+      positions[i * 3 + 1] = floats[base + 1];
+      positions[i * 3 + 2] = floats[base + 2];
+
+      // UVs are usually at offset 6 and 7 in standard Flare3D layouts
+      if (STRIDE_FLOATS >= 8) {
+        uvs[i * 2]     = floats[base + 6];
+        uvs[i * 2 + 1] = floats[base + 7];
+      }
     }
 
-    logDebug(`Header Text: ${textHeader.substring(0, 32)}`);
-    logDebug(`Header Hex: ${hexHeader.substring(0, 40)}...`);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
-    // Try reading as Int16 or Float32 to check value ranges
-    const int16View = new Int16Array(vertexBuffer.slice(0, 32));
-    const float32View = new Float32Array(vertexBuffer.slice(0, 32));
-    logDebug(`Int16 sample: [${int16View.slice(0, 6).join(', ')}]`);
-    logDebug(`Float32 sample: [${float32View.slice(0, 6).map(n => n.toFixed(2)).join(', ')}]`);
+    if (idxBuffer) {
+      const indices = new Uint16Array(idxBuffer);
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      logDebug(`Loaded index count: ${indices.length}`);
+    }
 
-    statusEl.textContent = 'Inspection complete';
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x6366f1,
+      roughness: 0.4,
+      side: THREE.DoubleSide,
+      wireframe: wireframeToggle.checked
+    });
+
+    if (currentMesh) scene.remove(currentMesh);
+    currentMesh = new THREE.Mesh(geometry, material);
+    scene.add(currentMesh);
+
+    geometry.computeBoundingSphere();
+    const radius = geometry.boundingSphere.radius || 10;
+    currentMesh.position.sub(geometry.boundingSphere.center);
+    camera.position.set(0, radius * 1.5, radius * 2.5);
+    controls.target.set(0, 0, 0);
+
+    statusEl.textContent = 'Rendered successfully';
+    vertexCountEl.textContent = totalVertices.toLocaleString();
+    faceCountEl.textContent = geometry.index ? (geometry.index.count / 3).toLocaleString() : Math.floor(totalVertices / 3).toLocaleString();
+    logDebug('Render complete!');
 
   } catch (err) {
     console.error(err);
-    statusEl.textContent = 'Inspection failed';
+    statusEl.textContent = 'Failed';
     logDebug(`ERR: ${err.message}`);
   }
 }
