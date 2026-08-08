@@ -6,55 +6,49 @@
 
 html, body {
   width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
   background: #0f0f12;
   font-family: monospace;
   color: #fff;
+  overflow-x: hidden;
 }
 
 #viewport {
-  width: 100vw;
-  height: 100vh;
-  position: absolute;
-  top: 0;
-  left: 0;
+  width: 100%;
+  height: 50vh;
+  min-height: 350px;
+  position: relative;
+  background: #0b0b0e;
 }
 
-#dropZone {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 2;
+.content-container {
+  padding: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .ui-panel {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  background: rgba(15, 15, 18, 0.9);
+  background: rgba(20, 20, 28, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 12px;
-  border-radius: 6px;
-  width: 220px;
-  z-index: 10;
-  font-size: 11px;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .ui-panel h2 {
-  font-size: 13px;
-  margin-bottom: 8px;
-  color: #818cf8;
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: #f3f4f6;
   letter-spacing: 0.5px;
 }
 
 .ui-row {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .ui-row span:last-child {
@@ -62,29 +56,47 @@ html, body {
 }
 
 .ui-toggles {
-  margin: 8px 0;
+  margin: 12px 0;
   display: flex;
-  gap: 10px;
+  gap: 16px;
 }
 
 .ui-toggles label {
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.drop-zone {
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  padding: 24px;
+  text-align: center;
+  border-radius: 8px;
+  background: rgba(15, 15, 18, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.drop-zone strong {
+  color: #fff;
 }
 
 .ui-btn {
-  width: 100%;
   background: #4f46e5;
   color: white;
   border: none;
-  padding: 6px;
-  border-radius: 4px;
+  padding: 8px 16px;
+  border-radius: 6px;
   cursor: pointer;
   font-family: inherit;
-  font-size: 11px;
-  margin-top: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  transition: background 0.2s;
 }
 
 .ui-btn:hover {
