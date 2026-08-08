@@ -26,7 +26,7 @@ scene.add(dirLight);
 const grid = new THREE.GridHelper(20, 20, 0x2a2a35, 0x1a1a22);
 scene.add(grid);
 
-let currentGroup = null;
+let currentMesh = null;
 
 const statusEl = document.getElementById('status');
 const vertexCountEl = document.getElementById('vertexCount');
@@ -64,64 +64,61 @@ fileInput.addEventListener('change', (e) => {
 async function handleZF3DContainer(file) {
   try {
     statusEl.textContent = 'Reading archive...';
-    logDebug(`Opening file: ${file.name}`);
+    logDebug(`Opening: ${file.name}`);
 
     const zip = await JSZip.loadAsync(file);
     const entries = Object.keys(zip.files);
-    logDebug(`Entries count: ${entries.length}`);
-
-    // Find all vertex-related files
-    const vertexKeys = entries.filter(name => name.includes('.vertex') || name.endsWith('vertex'));
-    const indexKeys = entries.filter(name => name.includes('.index') || name.endsWith('index'));
     
-    logDebug(`Found vertex files: ${vertexKeys.length}`);
+    const vertexKeys = entries.filter(name => name.includes('.vertex') || name.endsWith('vertex'));
+    const indexKey = entries.find(name => name.includes('.index') || name.endsWith('index'));
 
     if (vertexKeys.length === 0) {
-      statusEl.textContent = 'Error: No vertex files found!';
+      statusEl.textContent = 'Error: No vertex files!';
       return;
     }
 
-    if (currentGroup) scene.remove(currentGroup);
-    currentGroup = new THREE.Group();
+    // Pick only the first unique vertex buffer to avoid overlapping duplicates
+    const vBuffer = await zip.files[vertexKeys[0]].async('arraybuffer');
+    logDebug(`Using vertex file: ${vertexKeys[0]} (${vBuffer.byteLength} bytes)`);
 
-    let totalVerts = 0;
-
-    for (const vKey of vertexKeys) {
-      const vBuffer = await zip.files[vKey].async('arraybuffer');
-      logDebug(`Parsing ${vKey} (${vBuffer.byteLength} bytes)`);
-
-      const floats = new Float32Array(vBuffer);
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(floats, 3));
-      geometry.computeVertexNormals();
-
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x6366f1,
-        roughness: 0.4,
-        side: THREE.DoubleSide,
-        wireframe: wireframeToggle.checked
-      });
-
-      const mesh = new THREE.Mesh(geometry, material);
-      currentGroup.add(mesh);
-      totalVerts += floats.length / 3;
+    let idxBuffer = null;
+    if (indexKey) {
+      idxBuffer = await zip.files[indexKey].async('arraybuffer');
+      logDebug(`Using index file: ${indexKey} (${idxBuffer.byteLength} bytes)`);
     }
 
-    scene.add(currentGroup);
+    const floats = new Float32Array(vBuffer);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(floats, 3));
 
-    const box = new THREE.Box3().setFromObject(currentGroup);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z) || 10;
-    
-    currentGroup.position.sub(center);
-    camera.position.set(0, maxDim * 0.5, maxDim * 2);
+    if (idxBuffer) {
+      const indices = new Uint16Array(idxBuffer);
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    }
+
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x6366f1,
+      roughness: 0.4,
+      side: THREE.DoubleSide,
+      wireframe: wireframeToggle.checked
+    });
+
+    if (currentMesh) scene.remove(currentMesh);
+    currentMesh = new THREE.Mesh(geometry, material);
+    scene.add(currentMesh);
+
+    geometry.computeBoundingSphere();
+    const radius = geometry.boundingSphere.radius || 10;
+    currentMesh.position.sub(geometry.boundingSphere.center);
+    camera.position.set(0, radius * 1.5, radius * 2.5);
     controls.target.set(0, 0, 0);
 
-    statusEl.textContent = 'Parsed successfully';
-    vertexCountEl.textContent = totalVerts.toLocaleString();
-    faceCountEl.textContent = Math.floor(totalVerts / 3).toLocaleString();
-    logDebug('Render complete!');
+    statusEl.textContent = 'Rendered successfully';
+    vertexCountEl.textContent = (floats.length / 3).toLocaleString();
+    faceCountEl.textContent = geometry.index ? (geometry.index.count / 3).toLocaleString() : (floats.length / 9).toLocaleString();
+    logDebug('Success!');
 
   } catch (err) {
     console.error(err);
@@ -131,11 +128,7 @@ async function handleZF3DContainer(file) {
 }
 
 wireframeToggle.addEventListener('change', (e) => {
-  if (currentGroup) {
-    currentGroup.traverse((child) => {
-      if (child.isMesh) child.material.wireframe = e.target.checked;
-    });
-  }
+  if (currentMesh) currentMesh.material.wireframe = e.target.checked;
 });
 
 autoRotateToggle.addEventListener('change', (e) => {
