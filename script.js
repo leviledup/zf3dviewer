@@ -36,8 +36,8 @@ const autoRotateToggle = document.getElementById('autoRotateToggle');
 const resetCamBtn = document.getElementById('resetCamBtn');
 
 const debugBox = document.createElement('div');
-debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:300px; max-height:150px; background:rgba(0,0,0,0.8); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999; pointer-events:none;';
-debugBox.innerHTML = '<b>Debug Log:</b><br/>Ready...';
+debugBox.style.cssText = 'position:absolute; bottom:10px; right:10px; width:320px; max-height:180px; background:rgba(0,0,0,0.85); color:#00ffcc; font-family:monospace; font-size:10px; padding:8px; overflow-y:auto; border-radius:4px; z-index:999;';
+debugBox.innerHTML = '<b>ZF3D Structure Inspector:</b><br/>Ready...';
 container.appendChild(debugBox);
 
 function logDebug(text) {
@@ -54,75 +54,56 @@ const fileInput = document.getElementById('fileInput');
 });
 
 dropZone.addEventListener('drop', (e) => {
-  if (e.dataTransfer.files.length) handleZF3DContainer(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) inspectFile(e.dataTransfer.files[0]);
 });
 
 fileInput.addEventListener('change', (e) => {
-  if (e.target.files.length) handleZF3DContainer(e.target.files[0]);
+  if (e.target.files.length) inspectFile(e.target.files[0]);
 });
 
-async function handleZF3DContainer(file) {
+async function inspectFile(file) {
   try {
-    statusEl.textContent = 'Reading archive...';
-    logDebug(`Opening: ${file.name}`);
+    statusEl.textContent = 'Inspecting file structure...';
+    logDebug(`--- File: ${file.name} (${file.size} bytes) ---`);
 
     const zip = await JSZip.loadAsync(file);
     const entries = Object.keys(zip.files);
-    
-    const vertexKeys = entries.filter(name => name.includes('.vertex') || name.endsWith('vertex'));
-    const indexKey = entries.find(name => name.includes('.index') || name.endsWith('index'));
+    logDebug(`Entries found (${entries.length}): ${entries.slice(0, 5).join(', ')}...`);
 
-    if (vertexKeys.length === 0) {
-      statusEl.textContent = 'Error: No vertex files!';
+    // Let's look inside a .vertex file specifically
+    const vertexKey = entries.find(name => name.includes('.vertex') || name.endsWith('vertex'));
+    if (!vertexKey) {
+      logDebug('ERROR: No .vertex file found in archive.');
       return;
     }
 
-    // Pick only the first unique vertex buffer to avoid overlapping duplicates
-    const vBuffer = await zip.files[vertexKeys[0]].async('arraybuffer');
-    logDebug(`Using vertex file: ${vertexKeys[0]} (${vBuffer.byteLength} bytes)`);
+    const vertexBuffer = await zip.files[vertexKey].async('arraybuffer');
+    logDebug(`Inspected ${vertexKey}: ${vertexBuffer.byteLength} bytes`);
 
-    let idxBuffer = null;
-    if (indexKey) {
-      idxBuffer = await zip.files[indexKey].async('arraybuffer');
-      logDebug(`Using index file: ${indexKey} (${idxBuffer.byteLength} bytes)`);
+    // Inspect first 64 bytes as text and hex to see if there's a header
+    const headerBytes = new Uint8Array(vertexBuffer.slice(0, 64));
+    let textHeader = '';
+    let hexHeader = '';
+    for (let i = 0; i < headerBytes.length; i++) {
+      let b = headerBytes[i];
+      textHeader += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
+      hexHeader += b.toString(16).padStart(2, '0') + ' ';
     }
 
-    const floats = new Float32Array(vBuffer);
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(floats, 3));
+    logDebug(`Header Text: ${textHeader.substring(0, 32)}`);
+    logDebug(`Header Hex: ${hexHeader.substring(0, 40)}...`);
 
-    if (idxBuffer) {
-      const indices = new Uint16Array(idxBuffer);
-      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    }
+    // Try reading as Int16 or Float32 to check value ranges
+    const int16View = new Int16Array(vertexBuffer.slice(0, 32));
+    const float32View = new Float32Array(vertexBuffer.slice(0, 32));
+    logDebug(`Int16 sample: [${int16View.slice(0, 6).join(', ')}]`);
+    logDebug(`Float32 sample: [${float32View.slice(0, 6).map(n => n.toFixed(2)).join(', ')}]`);
 
-    geometry.computeVertexNormals();
-
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x6366f1,
-      roughness: 0.4,
-      side: THREE.DoubleSide,
-      wireframe: wireframeToggle.checked
-    });
-
-    if (currentMesh) scene.remove(currentMesh);
-    currentMesh = new THREE.Mesh(geometry, material);
-    scene.add(currentMesh);
-
-    geometry.computeBoundingSphere();
-    const radius = geometry.boundingSphere.radius || 10;
-    currentMesh.position.sub(geometry.boundingSphere.center);
-    camera.position.set(0, radius * 1.5, radius * 2.5);
-    controls.target.set(0, 0, 0);
-
-    statusEl.textContent = 'Rendered successfully';
-    vertexCountEl.textContent = (floats.length / 3).toLocaleString();
-    faceCountEl.textContent = geometry.index ? (geometry.index.count / 3).toLocaleString() : (floats.length / 9).toLocaleString();
-    logDebug('Success!');
+    statusEl.textContent = 'Inspection complete';
 
   } catch (err) {
     console.error(err);
-    statusEl.textContent = 'Failed to parse';
+    statusEl.textContent = 'Inspection failed';
     logDebug(`ERR: ${err.message}`);
   }
 }
