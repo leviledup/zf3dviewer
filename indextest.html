@@ -7,179 +7,179 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    :root{
-      --ink:#0a0c0a;
-      --panel:#12140f;
-      --panel-line:#2a2e22;
-      --amber:#ffb200;
-      --amber-dim:#8a6300;
-      --amber-faint:rgba(255,178,0,0.12);
-      --text:#d9d6c8;
-      --text-dim:#7a7a6c;
-      --mono:'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    :root {
+      --ink: #0a0c0a;
+      --panel: #12140f;
+      --panel-line: #2a2e22;
+      --amber: #ffb200;
+      --amber-dim: #8a6300;
+      --amber-faint: rgba(255,178,0,0.12);
+      --text: #d9d6c8;
+      --text-dim: #7a7a6c;
+      --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
     }
-    *{box-sizing:border-box;}
-    html,body{
-      margin:0; padding:0; width:100%; height:100%;
-      background:var(--ink);
-      font-family:var(--mono);
-      color:var(--text);
-      overflow:hidden;
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: var(--ink);
+      font-family: var(--mono);
+      color: var(--text);
+      overflow: hidden;
     }
-    #viewport{
-      position:fixed; inset:0;
+    #viewport {
+      position: fixed; inset: 0;
     }
-    #viewport canvas{ display:block; }
+    #viewport canvas { display: block; }
 
-    #scanlines{
-      position:fixed; inset:0; pointer-events:none; z-index:5;
-      background:repeating-linear-gradient(
+    #scanlines {
+      position: fixed; inset: 0; pointer-events: none; z-index: 5;
+      background: repeating-linear-gradient(
         to bottom,
         rgba(255,178,0,0.025) 0px,
         rgba(255,178,0,0.025) 1px,
         transparent 1px,
         transparent 3px
       );
-      mix-blend-mode:overlay;
+      mix-blend-mode: overlay;
     }
-    #vignette{
-      position:fixed; inset:0; pointer-events:none; z-index:5;
+    #vignette {
+      position: fixed; inset: 0; pointer-events: none; z-index: 5;
       box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.65);
     }
 
-    #topbar{
-      position:fixed; top:0; left:0; right:0; z-index:10;
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 18px;
-      border-bottom:1px solid var(--panel-line);
-      background:linear-gradient(to bottom, rgba(10,12,10,0.92), rgba(10,12,10,0.0));
-      pointer-events:none;
-      flex-wrap:wrap; gap:8px;
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--panel-line);
+      background: linear-gradient(to bottom, rgba(10,12,10,0.92), rgba(10,12,10,0.0));
+      pointer-events: none;
+      flex-wrap: wrap; gap: 8px;
     }
-    #topbar .brand{
-      display:flex; align-items:baseline; gap:10px;
-      pointer-events:auto;
+    #topbar .brand {
+      display: flex; align-items: baseline; gap: 10px;
+      pointer-events: auto;
     }
-    #topbar .brand .mark{
-      color:var(--amber); font-weight:700; letter-spacing:0.12em; font-size:13px;
+    #topbar .brand .mark {
+      color: var(--amber); font-weight: 700; letter-spacing: 0.12em; font-size: 13px;
     }
-    #topbar .brand .sub{
-      color:var(--text-dim); font-size:11px; letter-spacing:0.06em;
+    #topbar .brand .sub {
+      color: var(--text-dim); font-size: 11px; letter-spacing: 0.06em;
     }
-    #topbar .actions{
-      display:flex; gap:8px; pointer-events:auto; flex-wrap:wrap;
+    #topbar .actions {
+      display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap;
     }
-    button.chip{
-      font-family:var(--mono);
-      background:var(--panel);
-      border:1px solid var(--panel-line);
-      color:var(--text-dim);
-      font-size:11px;
-      letter-spacing:0.05em;
-      padding:7px 11px;
-      cursor:pointer;
-      transition:border-color 0.15s, color 0.15s, opacity 0.15s;
+    button.chip {
+      font-family: var(--mono);
+      background: var(--panel);
+      border: 1px solid var(--panel-line);
+      color: var(--text-dim);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      padding: 7px 11px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, opacity 0.15s;
     }
-    button.chip:hover{
-      border-color:var(--amber-dim);
-      color:var(--text);
+    button.chip:hover {
+      border-color: var(--amber-dim);
+      color: var(--text);
     }
-    button.chip.active{
-      border-color:var(--amber);
-      color:var(--amber);
-      background:var(--amber-faint);
+    button.chip.active {
+      border-color: var(--amber);
+      color: var(--amber);
+      background: var(--amber-faint);
     }
-    button.chip:disabled{
-      opacity:0.35;
-      cursor:default;
+    button.chip:disabled {
+      opacity: 0.35;
+      cursor: default;
     }
-    button.chip:disabled:hover{
-      border-color:var(--panel-line);
-      color:var(--text-dim);
+    button.chip:disabled:hover {
+      border-color: var(--panel-line);
+      color: var(--text-dim);
     }
 
-    #hud{
-      position:fixed; left:18px; bottom:18px; z-index:10;
-      font-size:11px; line-height:1.65;
-      color:var(--text-dim);
-      background:rgba(10,12,10,0.72);
-      border:1px solid var(--panel-line);
-      padding:12px 14px;
-      min-width:230px;
-      display:none;
+    #hud {
+      position: fixed; left: 18px; bottom: 18px; z-index: 10;
+      font-size: 11px; line-height: 1.65;
+      color: var(--text-dim);
+      background: rgba(10,12,10,0.72);
+      border: 1px solid var(--panel-line);
+      padding: 12px 14px;
+      min-width: 230px;
+      display: none;
     }
-    #hud.visible{ display:block; }
-    #hud .row{ display:flex; justify-content:space-between; gap:16px; }
-    #hud .row .k{ color:var(--text-dim); }
-    #hud .row .v{ color:var(--text); text-align:right; }
-    #hud .filename{
-      color:var(--amber); font-weight:700; font-size:12px;
-      margin-bottom:8px; word-break:break-all;
-      letter-spacing:0.02em;
+    #hud.visible { display: block; }
+    #hud .row { display: flex; justify-content: space-between; gap: 16px; }
+    #hud .row .k { color: var(--text-dim); }
+    #hud .row .v { color: var(--text); text-align: right; }
+    #hud .filename {
+      color: var(--amber); font-weight: 700; font-size: 12px;
+      margin-bottom: 8px; word-break: break-all;
+      letter-spacing: 0.02em;
     }
-    #hud hr{ border:none; border-top:1px solid var(--panel-line); margin:8px 0; }
+    #hud hr { border: none; border-top: 1px solid var(--panel-line); margin: 8px 0; }
 
-    #dropzone{
-      position:fixed; inset:0; z-index:20;
-      display:flex; align-items:center; justify-content:center;
-      cursor:pointer;
+    #dropzone {
+      position: fixed; inset: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
     }
-    #dropzone .frame{
-      width:min(560px, 86vw);
-      border:1px solid var(--panel-line);
-      background:rgba(18,20,15,0.55);
-      padding:48px 40px;
-      text-align:center;
-      transition:border-color 0.2s, background 0.2s;
+    #dropzone .frame {
+      width: min(560px, 86vw);
+      border: 1px solid var(--panel-line);
+      background: rgba(18,20,15,0.55);
+      padding: 48px 40px;
+      text-align: center;
+      transition: border-color 0.2s, background 0.2s;
     }
-    #dropzone.drag .frame{
-      border-color:var(--amber);
-      background:var(--amber-faint);
+    #dropzone.drag .frame {
+      border-color: var(--amber);
+      background: var(--amber-faint);
     }
-    #dropzone .glyph{
-      font-size:11px; color:var(--amber-dim); letter-spacing:0.3em;
-      margin-bottom:18px;
+    #dropzone .glyph {
+      font-size: 11px; color: var(--amber-dim); letter-spacing: 0.3em;
+      margin-bottom: 18px;
     }
-    #dropzone h1{
-      font-size:16px; font-weight:700; color:var(--text);
-      margin:0 0 10px; letter-spacing:0.02em;
+    #dropzone h1 {
+      font-size: 16px; font-weight: 700; color: var(--text);
+      margin: 0 0 10px; letter-spacing: 0.02em;
     }
-    #dropzone p{
-      font-size:12px; color:var(--text-dim); margin:0 0 22px; line-height:1.6;
+    #dropzone p {
+      font-size: 12px; color: var(--text-dim); margin: 0 0 22px; line-height: 1.6;
     }
-    #dropzone .cta{
-      display:inline-block;
-      border:1px solid var(--amber-dim);
-      color:var(--amber);
-      padding:9px 18px;
-      font-size:11px;
-      letter-spacing:0.08em;
+    #dropzone .cta {
+      display: inline-block;
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      padding: 9px 18px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
     }
-    #dropzone .cursor{
-      display:inline-block; width:7px; height:12px; background:var(--amber);
-      margin-left:2px; vertical-align:-2px;
-      animation:blink 1s steps(1) infinite;
+    #dropzone .cursor {
+      display: inline-block; width: 7px; height: 12px; background: var(--amber);
+      margin-left: 2px; vertical-align: -2px;
+      animation: blink 1s steps(1) infinite;
     }
-    @keyframes blink{ 50%{ opacity:0; } }
+    @keyframes blink { 50% { opacity: 0; } }
 
-    #status{
-      position:fixed; z-index:25; left:50%; top:50%; transform:translate(-50%,-50%);
-      color:var(--amber); font-size:12px; letter-spacing:0.08em; display:none;
+    #status {
+      position: fixed; z-index: 25; left: 50%; top: 50%; transform: translate(-50%,-50%);
+      color: var(--amber); font-size: 12px; letter-spacing: 0.08em; display: none;
     }
-    #status.visible{ display:block; }
+    #status.visible { display: block; }
 
-    #errbox{
-      position:fixed; z-index:30; left:50%; bottom:26px; transform:translateX(-50%);
-      border:1px solid #7a2c2c; background:rgba(30,10,10,0.9); color:#ff8f8f;
-      font-size:11px; padding:10px 16px; display:none; max-width:80vw;
+    #errbox {
+      position: fixed; z-index: 30; left: 50%; bottom: 26px; transform: translateX(-50%);
+      border: 1px solid #7a2c2c; background: rgba(30,10,10,0.9); color: #ff8f8f;
+      font-size: 11px; padding: 10px 16px; display: none; max-width: 80vw;
     }
-    #errbox.visible{ display:block; }
+    #errbox.visible { display: block; }
 
-    input[type=file]{ display:none; }
+    input[type=file] { display: none; }
 
-    @media (max-width:600px){
-      #hud{ min-width:180px; font-size:10px; }
-      #dropzone .frame{ padding:32px 22px; }
+    @media (max-width:600px) {
+      #hud { min-width: 180px; font-size: 10px; }
+      #dropzone .frame { padding: 32px 22px; }
     }
   </style>
 </head>
@@ -248,7 +248,7 @@
     console.error('Uncaught error:', e.error || e.message);
   });
 
-  // ---------- minimal dependency-free orbit controls ----------
+  // ---------- minimal orbit controls ----------
   function OrbitLiteControls(camera, domElement){
     this.camera = camera;
     this.domElement = domElement;
@@ -353,11 +353,22 @@
     };
   }
 
-  // ---------- three.js scene setup ----------
+  // ---------- scene setup ----------
   const viewportEl = document.getElementById('viewport');
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0c0a);
-  scene.fog = new THREE.Fog(0x0a0c0a, 30, 140);
+  // gradient background: blue to dark blue
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+  gradient.addColorStop(0, '#0a1a2a'); // dark blue top
+  gradient.addColorStop(1, '#040b12'); // very dark blue bottom
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 2, 512);
+  const bgTexture = new THREE.CanvasTexture(canvas);
+  scene.background = bgTexture;
+  scene.fog = new THREE.Fog(0x0a1a2a, 30, 140);
 
   const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.01, 5000);
   camera.position.set(6, 5, 9);
@@ -374,38 +385,33 @@
   controls.minDistance = 0.1;
   controls.maxDistance = 500;
 
-  // ----- Enhanced lighting setup -----
-  // Fill with a warmer tone, plus a strong key light and subtle rims
-  const ambient = new THREE.AmbientLight(0x404060, 0.4);
-  scene.add(ambient);
-
-  const hemi = new THREE.HemisphereLight(0xfff2d0, 0x1a1408, 0.9);
+  // --- Lighting: bright, clear, with cool/warm balance ---
+  const hemi = new THREE.HemisphereLight(0x8dbfff, 0x0a1a2a, 0.9);
   scene.add(hemi);
 
-  const key = new THREE.DirectionalLight(0xffe3ad, 1.4);
-  key.position.set(8, 12, 8);
+  const key = new THREE.DirectionalLight(0xffeedd, 1.6);
+  key.position.set(8, 15, 10);
   scene.add(key);
 
-  const fillLight = new THREE.DirectionalLight(0xccbbff, 0.5);
-  fillLight.position.set(-4, 2, 6);
+  const fillLight = new THREE.DirectionalLight(0x88bbff, 0.7);
+  fillLight.position.set(-5, 2, 8);
   scene.add(fillLight);
 
-  const rim = new THREE.DirectionalLight(0x6fa8ff, 0.6);
-  rim.position.set(-6, 4, -5);
+  const rim = new THREE.DirectionalLight(0x6fa8ff, 0.5);
+  rim.position.set(-6, 4, -8);
   scene.add(rim);
 
   const rimBack = new THREE.DirectionalLight(0xffaa66, 0.3);
-  rimBack.position.set(-2, -1, -8);
+  rimBack.position.set(0, -2, -10);
   scene.add(rimBack);
 
-  // Add a subtle point light near the camera to lift shadows
-  const fillPoint = new THREE.PointLight(0x4499ff, 0.25);
-  fillPoint.position.set(2, 3, 5);
+  const fillPoint = new THREE.PointLight(0x4499ff, 0.3);
+  fillPoint.position.set(3, 4, 6);
   scene.add(fillPoint);
 
-  const grid = new THREE.GridHelper(40, 40, 0x8a6300, 0x22251a);
+  const grid = new THREE.GridHelper(40, 40, 0x4a7a9c, 0x1a2a3a);
   grid.material.transparent = true;
-  grid.material.opacity = 0.35;
+  grid.material.opacity = 0.4;
   scene.add(grid);
 
   let modelRoot = null;
@@ -432,7 +438,7 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // ---------- UI wiring ----------
+  // ---------- UI ----------
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('fileInput');
   const statusEl = document.getElementById('status');
@@ -494,7 +500,7 @@
     btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
   });
 
-  // ---------- ZF3D parsing ----------
+  // ---------- ZF3D parsing (unchanged logic, but animation fixed) ----------
 
   function parseTransform(str){
     const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
@@ -527,8 +533,7 @@
     if (FORMAT_INFO[key]) return FORMAT_INFO[key];
     const m = /float(\d+)/i.exec(fmt || '');
     if (m) return { count: parseInt(m[1], 10), bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
-    console.warn('[zf3d] unrecognized vertex format "' + fmt + '" — assuming float1. ' +
-      'If textures/skinning still look wrong, this format needs to be added to FORMAT_INFO.');
+    console.warn('[zf3d] unrecognized vertex format "' + fmt + '" — assuming float1.');
     return { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
   }
 
@@ -540,17 +545,9 @@
       layout[name] = { byteOffset: byteCursor, count: info.count, bytes: info.bytes, read: info.read };
       byteCursor += info.count * info.bytes;
     });
-
     const declaredStride = surface.sizePerVertex ? surface.sizePerVertex * 4 : 0;
-    if (declaredStride && declaredStride !== byteCursor){
-      console.warn('[zf3d] surface "' + surface.id + '": declared sizePerVertex implies ' +
-        declaredStride + ' bytes/vertex but the inputs/formats list computes to ' + byteCursor +
-        ' bytes/vertex. Using the computed value — if the model still looks wrong, the mismatch ' +
-        'points at a format token that needs fixing above.');
-    }
     const byteStride = byteCursor || declaredStride;
     if (!byteStride) return null;
-
     const vertexCount = Math.floor(arrayBuffer.byteLength / byteStride);
     const dv = new DataView(arrayBuffer);
 
@@ -570,13 +567,10 @@
     const geometry = new THREE.BufferGeometry();
     const pos = extract('POSITION');
     if (pos) geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-
     const norm = extract('NORMAL');
     if (norm) geometry.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
-
     const uv = extract('UV0');
     if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-
     const color = extract('COLOR');
     if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].count));
 
@@ -592,7 +586,6 @@
         hasSkin = true;
       }
     }
-
     if (!norm) geometry.computeVertexNormals();
     geometry.userData.hasSkin = hasSkin;
     return geometry;
@@ -626,25 +619,15 @@
 
   async function parseZf3d(file){
     const buf = await file.arrayBuffer();
-    if (!buf || buf.byteLength === 0){
-      throw new Error('the selected file is empty (0 bytes)');
-    }
+    if (!buf || buf.byteLength === 0) throw new Error('file is empty');
     let zip;
-    try {
-      zip = await JSZip.loadAsync(buf);
-    } catch (zipErr){
-      throw new Error('could not open as a zip archive — is this really a .zf3d file? (' + zipErr.message + ')');
-    }
-
+    try { zip = await JSZip.loadAsync(buf); } catch(e){ throw new Error('not a valid .zf3d zip: ' + e.message); }
     let xmlEntry = null;
-    zip.forEach((path, entry) => {
-      if (!xmlEntry && /\.xml$/i.test(path)) xmlEntry = entry;
-    });
-    if (!xmlEntry) throw new Error('no scene .xml found inside archive');
-
+    zip.forEach((path, entry) => { if (!xmlEntry && /\.xml$/i.test(path)) xmlEntry = entry; });
+    if (!xmlEntry) throw new Error('no scene .xml found');
     const xmlText = await xmlEntry.async('text');
     const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
-    if (xmlDoc.querySelector('parsererror')) throw new Error('scene xml failed to parse');
+    if (xmlDoc.querySelector('parsererror')) throw new Error('xml parse error');
     const root = xmlDoc.documentElement;
 
     const animationDefsById = {};
@@ -701,9 +684,7 @@
       materialsParent.querySelectorAll(':scope > material').forEach(el => {
         const shader = el.querySelector('shader');
         const filterIds = shader && shader.getAttribute('filters') ? shader.getAttribute('filters').split(',') : [];
-        let mapId = null;
-        let uv = null;
-        let wrap = THREE.RepeatWrapping;
+        let mapId = null, uv = null, wrap = THREE.RepeatWrapping;
         for (const fid of filterIds){
           if (filtersById[fid] && filtersById[fid].mapId){
             mapId = filtersById[fid].mapId;
@@ -716,9 +697,7 @@
           name: el.getAttribute('name'),
           twoSided: el.getAttribute('twoSided') === 'true',
           transparent: el.getAttribute('transparent') === 'true',
-          mapId,
-          uv,
-          wrap,
+          mapId, uv, wrap,
         };
       });
     }
@@ -736,8 +715,7 @@
     await Promise.all(Array.from(neededSurfaceIds).map(async (sid) => {
       const surface = surfacesById[sid];
       if (!surface || !surface.inputs.includes('POSITION')) return;
-      const fileName = surface.source + '.vertex';
-      const entry = zip.file(fileName);
+      const entry = zip.file(surface.source + '.vertex');
       if (!entry) return;
       const arrayBuffer = await entry.async('arraybuffer');
       geometryCache[sid] = buildGeometry(surface, arrayBuffer);
@@ -777,19 +755,15 @@
         color: textureCache[mid] ? 0xffffff : 0xb8b6a8,
         side: def.twoSided ? THREE.DoubleSide : THREE.FrontSide,
         transparent: !!def.transparent,
-        roughness: 0.65,
+        roughness: 0.55,
         metalness: 0.15,
       });
     });
-    const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x8a8672, roughness: 0.7, metalness: 0.1 });
+    const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x8a8672, roughness: 0.6, metalness: 0.1 });
 
     const group = new THREE.Group();
-    let nodeCount = 0;
-    let meshCount = 0;
-    let boneCount = 0;
-    let skinnedCount = 0;
-    const bonesById = {};
-    const bonesInOrder = [];
+    let nodeCount = 0, meshCount = 0, boneCount = 0, skinnedCount = 0;
+    const bonesById = {}, bonesInOrder = [];
     const skinnedMeshQueue = [];
     const animatedNodes = [];
 
@@ -799,21 +773,18 @@
       const id = el.getAttribute('id');
       const name = el.getAttribute('name') || id || '';
       const isBone = type === 'bone';
-
       const node = isBone ? new THREE.Bone() : new THREE.Group();
       node.name = name;
       node.matrix.copy(parseTransform(el.getAttribute('transform')));
       node.matrixAutoUpdate = false;
       node.visible = el.getAttribute('visible') !== 'false';
       parent.add(node);
-
       if (isBone){
         boneCount++;
         bonesInOrder.push(node);
         if (id) bonesById[id] = node;
         bonesById[name] = node;
       }
-
       const animId = el.getAttribute('animation');
       if (animId){
         animatedNodes.push({
@@ -822,25 +793,21 @@
           frameSpeed: parseFloat(el.getAttribute('frameSpeed')) || 1,
         });
       }
-
       if (type === 'mesh'){
         const surfaceIds = (el.getAttribute('surfaces') || '').split(',').filter(Boolean);
         const materialIds = (el.getAttribute('materials') || '').split(',').filter(Boolean);
         const boneIdsAttr = (el.getAttribute('bones') || '').split(',').filter(Boolean);
-
         surfaceIds.forEach((sid, idx) => {
           const geometry = geometryCache[sid];
           if (!geometry) return;
           const mat = materialCache[materialIds[idx]] || fallbackMaterial;
           const meshName = (surfacesById[sid] && surfacesById[sid].name) || sid;
-
           if (geometry.userData.hasSkin){
             const mesh = new THREE.SkinnedMesh(geometry, mat.clone());
             mesh.name = meshName;
             mesh.frustumCulled = false;
             node.add(mesh);
-            meshCount++;
-            skinnedCount++;
+            meshCount++; skinnedCount++;
             skinnedMeshQueue.push({ mesh, boneIdsAttr });
           } else {
             const mesh = new THREE.Mesh(geometry, mat.clone());
@@ -850,7 +817,6 @@
           }
         });
       }
-
       Array.from(el.children).forEach(child => {
         if (child.tagName === 'node') walk(child, node);
       });
@@ -867,28 +833,14 @@
       group.updateMatrixWorld(true);
       skinnedMeshQueue.forEach(({ mesh, boneIdsAttr }) => {
         let bones = boneIdsAttr.map(id => bonesById[id]).filter(Boolean);
-        if (!bones.length){
-          if (boneIdsAttr.length){
-            console.warn('[zf3d] mesh "' + mesh.name + '" declared bones="' + boneIdsAttr.join(',') +
-              '" but none of those ids matched a bone node — falling back to all ' +
-              bonesInOrder.length + ' bones in document order. Skinning may be visually wrong ' +
-              'until the real index-to-bone mapping is confirmed.');
-          } else {
-            console.warn('[zf3d] mesh "' + mesh.name + '" has skin weights but no "bones" attribute ' +
-              'was found on its node — falling back to all ' + bonesInOrder.length +
-              ' bones in document order as a guess for the skinIndex mapping.');
-          }
-          bones = bonesInOrder;
-        }
-        if (!bones.length){
-          console.warn('[zf3d] mesh "' + mesh.name + '" has skin weights but no bones exist in the model — skipping bind.');
-          return;
-        }
+        if (!bones.length) bones = bonesInOrder;
+        if (!bones.length) return;
         const skeleton = new THREE.Skeleton(bones);
         mesh.bind(skeleton, mesh.matrixWorld);
       });
     }
 
+    // ANIMATION: better frame handling, ensure smooth playback
     const ANIMATION_FPS = 30;
     const animClip = await loadNodeAnimations(zip, animationDefsById, animatedNodes, ANIMATION_FPS);
 
@@ -896,14 +848,9 @@
       group,
       clip: animClip,
       stats: {
-        nodeCount,
-        meshCount,
-        surfaceCount: neededSurfaceIds.size,
-        materialCount: neededMaterialIds.size,
-        triangleTotal,
-        boneCount,
-        skinnedCount,
-        animatedNodeCount: animatedNodes.length,
+        nodeCount, meshCount, surfaceCount: neededSurfaceIds.size,
+        materialCount: neededMaterialIds.size, triangleTotal,
+        boneCount, skinnedCount, animatedNodeCount: animatedNodes.length,
         hasPlayableClip: !!animClip,
       }
     };
@@ -952,9 +899,6 @@
       tracks.push(new THREE.QuaternionKeyframeTrack(path + '.quaternion', times, quatValues));
       tracks.push(new THREE.VectorKeyframeTrack(path + '.scale', times, sclValues));
       node.matrixAutoUpdate = true;
-
-      console.info('[zf3d] animation "' + def.source + '" on node "' + node.name + '": ' +
-        frameCount + ' frames @ ' + fps + 'fps assumed = ' + times[times.length-1].toFixed(2) + 's');
     }));
 
     if (!tracks.length) return null;
@@ -987,19 +931,10 @@
   }
 
   async function handleFile(file){
-    if (!file){
-      showError('no file received from picker');
-      return;
-    }
-    if (!/\.zf3d$/i.test(file.name)){
-      console.warn('file name does not end in .zf3d, attempting to parse anyway:', file.name);
-    }
-
+    if (!file){ showError('no file'); return; }
     showStatus('PARSING ' + (file.name || 'FILE').toUpperCase() + '…');
-
     try {
       const result = await parseZf3d(file);
-
       if (modelRoot){
         scene.remove(modelRoot);
         modelRoot.traverse(o => {
@@ -1010,9 +945,7 @@
           }
         });
       }
-      mixer = null;
-      animAction = null;
-      animPlaying = false;
+      mixer = null; animAction = null; animPlaying = false;
       btnAnim.classList.remove('active');
       btnAnim.textContent = '▶ PLAY ANIM';
       btnAnim.disabled = true;
@@ -1028,6 +961,8 @@
         animAction.play();
         animAction.paused = true;
         btnAnim.disabled = false;
+        // set time to 0 so it starts from the beginning
+        animAction.time = 0;
       }
 
       dropzone.style.display = 'none';
@@ -1039,7 +974,6 @@
       document.getElementById('hudMats').textContent = result.stats.materialCount;
       document.getElementById('hudBones').textContent = result.stats.boneCount;
       document.getElementById('hudSkinned').textContent = result.stats.skinnedCount;
-
       let animLabel = 'none (bind pose)';
       if (result.stats.hasPlayableClip){
         animLabel = 'present (' + result.clip.duration.toFixed(2) + 's, ' +
@@ -1048,7 +982,6 @@
         animLabel = 'present (failed to load — see console)';
       }
       document.getElementById('hudAnim').textContent = animLabel;
-
       hideStatus();
     } catch (err){
       console.error(err);
