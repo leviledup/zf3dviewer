@@ -178,6 +178,7 @@
     <button class="chip" id="btnFlipZ" title="Rotate 180° about the model's Z axis">FLIP Z</button>
     <button class="chip" id="btnUV" disabled>UV EDIT</button>
     <button class="chip" id="btnAnim" disabled>▶ PLAY ANIM</button>
+    <button class="chip" id="btnExport" disabled>EXPORT OBJ</button>
   </div>
 </div>
 
@@ -222,6 +223,7 @@
 <input type="file" id="fileInput" accept=".zf3d,application/zip,application/x-zip-compressed,application/octet-stream">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <script>
@@ -399,6 +401,7 @@
   scene.add(grid);
 
   let modelRoot = null;
+  let currentFileName = "model";
   let wireframeOn = false;
   let autorotate = false;
   let mixer = null;
@@ -413,11 +416,6 @@
     return new THREE.Box3().setFromObject(obj);
   }
 
-  // Heuristic fix for models authored in a different "up" axis (common with
-  // 3ds Max-sourced Flare3D scenes, which are often Z-up). If the model is
-  // clearly wider/longer than it is tall, rotate it so its long axis becomes
-  // vertical. This is a guess based on the bounding box, not a guarantee —
-  // the FLIP X / FLIP Z buttons let you correct it by hand if it's wrong.
   function autoOrient(root){
     const box = getWorldAABB(root);
     const size = new THREE.Vector3();
@@ -433,13 +431,16 @@
     return false;
   }
 
-  // Put the model's horizontal center at world X=0/Z=0 and rest its lowest
-  // point on the ground plane at Y=0 — i.e. the model's origin is (0,0,0).
+  // FIXED: Precise re-centering and ground positioning
   function groundAndCenter(root){
+    root.updateMatrixWorld(true);
     const box = getWorldAABB(root);
     if (box.isEmpty()) return;
+    
     const center = new THREE.Vector3();
     box.getCenter(center);
+    
+    // Offset local coordinates based on calculated center bounds
     root.position.x -= center.x;
     root.position.z -= center.z;
     root.position.y -= box.min.y;
@@ -453,8 +454,6 @@
 
     if (mixer && animPlaying){
       mixer.update(delta);
-      // Keep the orbit target locked to the character's current center so
-      // the camera doesn't drift off-model as the animation plays.
       if (modelRoot){
         const box = getWorldAABB(modelRoot);
         if (!box.isEmpty()){
@@ -484,6 +483,7 @@
   const hud = document.getElementById('hud');
   const btnAnim = document.getElementById('btnAnim');
   const btnUV = document.getElementById('btnUV');
+  const btnExport = document.getElementById('btnExport');
 
   function showStatus(msg){ statusEl.textContent = msg; statusEl.classList.add('visible'); }
   function hideStatus(){ statusEl.classList.remove('visible'); }
@@ -551,6 +551,69 @@
     btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
   });
 
+  // Export textured OBJ + MTL + Textures as Zip
+  btnExport.addEventListener('click', async () => {
+    if (!modelRoot) return;
+    showStatus('EXPORTING OBJ ARCHIVE…');
+    try {
+      const zip = new JSZip();
+      const exporter = new THREE.OBJExporter();
+      const objResult = exporter.parse(modelRoot);
+      const baseName = currentFileName.replace(/\.[^/.]+$/, "");
+      
+      let mtlContent = `# Material library for ${baseName}.obj\n`;
+      const texturesToExport = [];
+      const matMap = new Map();
+
+      modelRoot.traverse(child => {
+        if (child.isMesh && child.material) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach((mat, idx) => {
+            const matName = mat.name || `Material_${mat.id}`;
+            if (!matMap.has(matName)) {
+              matMap.set(matName, true);
+              mtlContent += `\nnewmtl ${matName}\n`;
+              mtlContent += `Kd ${mat.color.r} ${mat.color.g} ${mat.color.b}\n`;
+              if (mat.map && mat.map.image) {
+                const texFileName = `${matName}_diffuse.png`;
+                mtlContent += `map_Kd ${texFileName}\n`;
+                texturesToExport.push({ fileName: texFileName, image: mat.map.image });
+              }
+            }
+          });
+        }
+      });
+
+      let finalObj = `mtllib ${baseName}.mtl\n` + objResult;
+
+      zip.file(`${baseName}.obj`, finalObj);
+      zip.file(`${baseName}.mtl`, mtlContent);
+
+      texturesToExport.forEach(item => {
+        const c = document.createElement('canvas');
+        c.width = item.image.width || item.image.videoWidth || 512;
+        c.height = item.image.height || item.image.videoHeight || 512;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(item.image, 0, 0);
+        const dataUrl = c.toDataURL('image/png');
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        zip.file(item.fileName, base64Data, { base64: true });
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${baseName}_textured.zip`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      hideStatus();
+    } catch(err) {
+      console.error(err);
+      hideStatus();
+      showError('Failed exporting OBJ archive.');
+    }
+  });
+
   // ---------- UV face-mover editor ----------
   const uvPanel = document.getElementById('uvPanel');
   const uvCanvas = document.getElementById('uvCanvas');
@@ -613,7 +676,7 @@
     uvCtx.clearRect(0, 0, uvCanvas.width, uvCanvas.height);
     if (uvActive.image){
       try { uvCtx.drawImage(uvActive.image, 0, 0, uvCanvas.width, uvCanvas.height); }
-      catch(e){ /* image not decodable yet — draw checker below on next frame */ }
+      catch(e){}
     } else {
       const cell = uvCanvas.width / 16;
       for (let y = 0; y < 16; y++){
@@ -713,14 +776,15 @@
 
   // ---------- ZF3D parser ----------
 
+  // FIXED: Proper matrix decomposition layout for Flare3D column-major matrices
   function parseTransform(str){
     const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
     const m = new THREE.Matrix4();
     m.set(
-      v[0], v[1], v[2], v[9],
-      v[3], v[4], v[5], v[10],
-      v[6], v[7], v[8], v[11],
-      0, 0, 0, 1
+      v[0], v[3], v[6], v[9],
+      v[1], v[4], v[7], v[10],
+      v[2], v[5], v[8], v[11],
+      0,    0,    0,    1
     );
     return m;
   }
@@ -756,7 +820,6 @@
     if (FORMAT_INFO[key]) return FORMAT_INFO[key];
     const m = /float(\d+)/i.exec(fmt || '');
     if (m) return { count: parseInt(m[1], 10), bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
-    console.warn('[zf3d] unrecognized vertex format "' + fmt + '" — assuming float1.');
     return { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) };
   }
 
@@ -802,7 +865,6 @@
     const uv = extract('UV0') || extract('TEXCOORD0') || extract('UV');
     if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 
-    // Vertex color input can show up as COLOR, COLOR0, COLOR1, etc.
     const colorKey = inputs.find(n => /^COLOR/i.test(n));
     if (colorKey){
       const color = extract(colorKey);
@@ -904,8 +966,6 @@
       });
     }
 
-    // Filters -> which map they sample, their UV transform/wrap, and whether
-    // they're a vertex-color tint filter (materials can chain more than one).
     const filtersById = {};
     const filtersParent = root.querySelector(':scope > filters');
     if (filtersParent){
@@ -993,6 +1053,7 @@
         tex.needsUpdate = true;
       }
       materialCache[mid] = new THREE.MeshStandardMaterial({
+        name: def.name || mid,
         map: tex || null,
         color: tex ? 0xffffff : 0xb8b6a8,
         vertexColors: !!def.useVertexColor,
@@ -1002,7 +1063,7 @@
         metalness: 0.15,
       });
     });
-    const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x8a8672, roughness: 0.6, metalness: 0.1 });
+    const fallbackMaterial = new THREE.MeshStandardMaterial({ name: "fallback_mat", color: 0x8a8672, roughness: 0.6, metalness: 0.1 });
 
     const group = new THREE.Group();
     let nodeCount = 0, meshCount = 0, boneCount = 0, skinnedCount = 0;
@@ -1022,6 +1083,7 @@
       });
     }
 
+    // FIXED: Proper node graph and transform matrix application
     function walk(el, parent){
       nodeCount++;
       const type = el.getAttribute('type');
@@ -1030,8 +1092,11 @@
       const isBone = type === 'bone';
       const node = isBone ? new THREE.Bone() : new THREE.Group();
       node.name = name;
-      node.matrix.copy(parseTransform(el.getAttribute('transform')));
-      node.matrixAutoUpdate = false;
+
+      // Extract matrix, decompose to transform components properly for local scene updates
+      const localMatrix = parseTransform(el.getAttribute('transform'));
+      localMatrix.decompose(node.position, node.quaternion, node.scale);
+
       node.visible = el.getAttribute('visible') !== 'false';
       parent.add(node);
 
@@ -1101,7 +1166,7 @@
       });
     }
 
-    const ANIMATION_FPS = 30; // not encoded in the format — best-effort default
+    const ANIMATION_FPS = 30;
     const animClip = await loadNodeAnimations(zip, animationDefsById, animatedNodes, ANIMATION_FPS);
 
     return {
@@ -1142,10 +1207,10 @@
       for (let f = 0; f < frameCount; f++){
         const b = f * 12;
         m.set(
-          floats[b+0], floats[b+1], floats[b+2], floats[b+9],
-          floats[b+3], floats[b+4], floats[b+5], floats[b+10],
-          floats[b+6], floats[b+7], floats[b+8], floats[b+11],
-          0, 0, 0, 1
+          floats[b+0], floats[b+3], floats[b+6], floats[b+9],
+          floats[b+1], floats[b+4], floats[b+7], floats[b+10],
+          floats[b+2], floats[b+5], floats[b+8], floats[b+11],
+          0,          0,          0,          1
         );
         m.decompose(pos, quat, scl);
         times[f] = (f / fps) / (frameSpeed || 1);
@@ -1159,7 +1224,6 @@
       tracks.push(new THREE.VectorKeyframeTrack(path + '.position', times, posValues));
       tracks.push(new THREE.QuaternionKeyframeTrack(path + '.quaternion', times, quatValues));
       tracks.push(new THREE.VectorKeyframeTrack(path + '.scale', times, sclValues));
-      node.matrixAutoUpdate = true;
     }));
 
     if (!tracks.length) return null;
@@ -1196,10 +1260,8 @@
 
   async function handleFile(file){
     if (!file){ showError('no file received from picker'); return; }
-    if (!/\.zf3d$/i.test(file.name)){
-      console.warn('file name does not end in .zf3d, attempting to parse anyway:', file.name);
-    }
-    showStatus('PARSING ' + (file.name || 'FILE').toUpperCase() + '…');
+    currentFileName = file.name || "model.zf3d";
+    showStatus('PARSING ' + currentFileName.toUpperCase() + '…');
     try {
       const result = await parseZf3d(file);
 
@@ -1226,6 +1288,8 @@
       const wasReoriented = autoOrient(modelRoot);
       groundAndCenter(modelRoot);
       frameCamera(modelRoot);
+
+      btnExport.disabled = false;
 
       if (result.clip){
         mixer = new THREE.AnimationMixer(modelRoot);
