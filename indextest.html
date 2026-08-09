@@ -42,7 +42,6 @@
       );
       mix-blend-mode: overlay;
     }
-    /* vignette removed */
 
     #topbar {
       position: fixed; top: 0; left: 0; right: 0; z-index: 10;
@@ -184,7 +183,6 @@
 
 <div id="viewport"></div>
 <div id="scanlines"></div>
-<!-- vignette removed -->
 
 <div id="topbar">
   <div class="brand">
@@ -359,8 +357,8 @@
   canvas.height = 512;
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-  gradient.addColorStop(0, '#0a1a3a'); // deep blue top
-  gradient.addColorStop(1, '#040b18'); // very dark blue bottom
+  gradient.addColorStop(0, '#0a1a3a');
+  gradient.addColorStop(1, '#040b18');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 2, 512);
   const bgTexture = new THREE.CanvasTexture(canvas);
@@ -382,26 +380,21 @@
   controls.minDistance = 0.1;
   controls.maxDistance = 500;
 
-  // --- Lighting: bright, neutral, with cool tint ---
+  // --- Lighting ---
   const hemi = new THREE.HemisphereLight(0xffffff, 0x444466, 0.9);
   scene.add(hemi);
-
   const key = new THREE.DirectionalLight(0xffeedd, 1.6);
   key.position.set(8, 15, 10);
   scene.add(key);
-
   const fillLight = new THREE.DirectionalLight(0x88bbff, 0.7);
   fillLight.position.set(-5, 2, 8);
   scene.add(fillLight);
-
   const rim = new THREE.DirectionalLight(0x6fa8ff, 0.5);
   rim.position.set(-6, 4, -8);
   scene.add(rim);
-
   const rimBack = new THREE.DirectionalLight(0xffaa66, 0.3);
   rimBack.position.set(0, -2, -10);
   scene.add(rimBack);
-
   const fillPoint = new THREE.PointLight(0x4499ff, 0.3);
   fillPoint.position.set(3, 4, 6);
   scene.add(fillPoint);
@@ -497,8 +490,7 @@
     btnAnim.textContent = animPlaying ? '⏸ PAUSE ANIM' : '▶ PLAY ANIM';
   });
 
-  // ---------- ZF3D parsing (improved) ----------
-
+  // ---------- Improved ZF3D parser ----------
   function parseTransform(str){
     const v = (str || '1,0,0,0,1,0,0,0,1,0,0,0').split(',').map(Number);
     const m = new THREE.Matrix4();
@@ -511,7 +503,16 @@
     return m;
   }
 
-  // Expanded format info with more common types
+  // Convert half float (uint16) to float
+  function halfToFloat(h){
+    const s = (h & 0x8000) >> 15;
+    const e = (h & 0x7C00) >> 10;
+    const f = h & 0x03FF;
+    if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+    if (e === 0x1F) return s ? -Infinity : Infinity;
+    return (s ? -1 : 1) * Math.pow(2, e-15) * (1 + f/1024);
+  }
+
   const FORMAT_INFO = {
     float1:  { count:1, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
     float2:  { count:2, bytes:4, read:(dv,o)=>dv.getFloat32(o, true) },
@@ -525,10 +526,10 @@
     short4:  { count:4, bytes:2, read:(dv,o)=>dv.getInt16(o, true) },
     ushort2: { count:2, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
     ushort4: { count:4, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
-    // additional common ones
-    half2:   { count:2, bytes:2, read:(dv,o)=>dv.getUint16(o, true) }, // not real half but treat as ushort
-    half4:   { count:4, bytes:2, read:(dv,o)=>dv.getUint16(o, true) },
+    half2:   { count:2, bytes:2, read:(dv,o)=>halfToFloat(dv.getUint16(o, true)) },
+    half4:   { count:4, bytes:2, read:(dv,o)=>halfToFloat(dv.getUint16(o, true)) },
   };
+
   function getFormatInfo(fmt){
     const key = (fmt || '').toLowerCase();
     if (FORMAT_INFO[key]) return FORMAT_INFO[key];
@@ -539,11 +540,10 @@
   }
 
   function buildGeometry(surface, arrayBuffer){
-    // compute layout from inputs/formats
-    let byteCursor = 0;
-    const layout = {};
     const inputs = surface.inputs || [];
     const formats = surface.formats || [];
+    let byteCursor = 0;
+    const layout = {};
     inputs.forEach((name, idx) => {
       const info = getFormatInfo(formats[idx] || 'float1');
       layout[name] = { byteOffset: byteCursor, count: info.count, bytes: info.bytes, read: info.read };
@@ -570,25 +570,20 @@
     }
 
     const geometry = new THREE.BufferGeometry();
-    // Try common position names
-    let pos = extract('POSITION');
-    if (!pos) pos = extract('POS');
-    if (!pos) pos = extract('VERTEX');
+    // Try multiple common position names
+    let pos = extract('POSITION') || extract('POS') || extract('VERTEX');
     if (pos) geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
 
-    let norm = extract('NORMAL');
-    if (!norm) norm = extract('NORM');
+    let norm = extract('NORMAL') || extract('NORM');
     if (norm) geometry.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
 
-    let uv = extract('UV0');
-    if (!uv) uv = extract('TEXCOORD0');
-    if (!uv) uv = extract('UV');
+    let uv = extract('UV0') || extract('TEXCOORD0') || extract('UV');
     if (uv) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 
     const color = extract('COLOR');
     if (color) geometry.setAttribute('color', new THREE.BufferAttribute(color, layout['COLOR'].count));
 
-    // skinning
+    // Skinning: case-insensitive search
     const skinIdxName = inputs.find(n => /SKININDEX|BLENDINDICES/i.test(n));
     const skinWtName = inputs.find(n => /SKINWEIGHT|BLENDWEIGHT/i.test(n));
     let hasSkin = false;
@@ -729,7 +724,7 @@
     let triangleTotal = 0;
     await Promise.all(Array.from(neededSurfaceIds).map(async (sid) => {
       const surface = surfacesById[sid];
-      if (!surface || !surface.inputs.includes('POSITION')) return;
+      if (!surface || !surface.inputs.some(n => /POSITION|POS|VERTEX/i.test(n))) return;
       const entry = zip.file(surface.source + '.vertex');
       if (!entry) return;
       const arrayBuffer = await entry.async('arraybuffer');
